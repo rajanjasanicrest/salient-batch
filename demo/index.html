@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Batch Studio</title>
+  <style>
+    :root {
+      --blue: #1769e0;
+      --blue-dark: #0f4ead;
+      --blue-soft: #eaf3ff;
+      --blue-pale: #f6faff;
+      --ink: #15345b;
+      --muted: #6b83a2;
+      --line: #dce9f8;
+      --white: #ffffff;
+      --shadow: 0 12px 30px rgba(25, 82, 151, .09);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: linear-gradient(180deg, #f7fbff 0, #fff 45%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 32px 0 42px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px;
+      color: var(--white); background: var(--blue); font-weight: 800; box-shadow: 0 8px 18px rgba(23,105,224,.22);
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 4px var(--blue-soft); }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px minmax(0, 1fr); gap: 16px; min-height: 680px; }
+    .panel { background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+    .panel-head { min-height: 70px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--blue); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    h2 { margin: 3px 0 0; font-size: 16px; letter-spacing: -.01em; }
+    .folder-path { color: var(--muted); font-size: 10px; margin-top: 3px; }
+    .count { min-width: 32px; padding: 5px 9px; text-align: center; border-radius: 20px; color: var(--blue); background: var(--blue-soft); font-size: 12px; font-weight: 700; }
+    .panel-head-actions { display: flex; align-items: center; gap: 7px; }
+    .clear-button { border: 1px solid #b9d4f4; border-radius: 9px; padding: 6px 9px; color: var(--blue-dark); background: var(--white); font-size: 11px; font-weight: 800; }
+    .clear-button:hover { border-color: var(--blue); background: var(--blue-soft); }
+    .clear-button:disabled { opacity: .45; cursor: not-allowed; }
+    .gallery { padding: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-height: 608px; overflow: auto; }
+    .image-card { min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--white); }
+    .thumb { aspect-ratio: 4 / 3; display: grid; place-items: center; background-color: var(--blue-pale); background-image: linear-gradient(45deg,#eaf2fc 25%,transparent 25%),linear-gradient(-45deg,#eaf2fc 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eaf2fc 75%),linear-gradient(-45deg,transparent 75%,#eaf2fc 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; }
+    .thumb img { width: 100%; height: 100%; object-fit: contain; }
+    .file-meta { padding: 9px 10px 10px; }
+    .filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; }
+    .filesize { color: var(--muted); font-size: 10px; margin-top: 3px; }
+    .empty { grid-column: 1 / -1; min-height: 420px; display: grid; place-items: center; text-align: center; color: var(--muted); }
+    .empty-orb { width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 16px; border: 1px dashed #a9c9ee; background: var(--blue-pale); display: grid; place-items: center; color: var(--blue); font-size: 24px; }
+    .pipeline { display: flex; flex-direction: column; }
+    .pipeline-body { padding: 14px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .format-row { display: grid; gap: 6px; margin-bottom: 13px; }
+    .preset-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .preset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+    .preset { min-width: 0; min-height: 66px; padding: 8px 7px; text-align: left; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--white); }
+    .preset:hover { border-color: #9fc4f2; background: var(--blue-pale); }
+    .preset.active { border-color: var(--blue); background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue); }
+    .preset-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--blue-dark); font-size: 11px; font-weight: 800; }
+    .preset-copy { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.25; }
+    label { color: var(--ink); font-size: 12px; font-weight: 700; }
+    select, input[type="number"], input[type="text"], input[type="url"] { width: 100%; border: 1px solid #cfe0f3; border-radius: 9px; padding: 9px 10px; color: var(--ink); background: var(--white); outline: none; }
+    select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+    .add-label { display: flex; justify-content: space-between; align-items: center; margin: 3px 0 8px; }
+    .add-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .op-add { padding: 8px 4px; border: 1px solid var(--line); border-radius: 9px; color: var(--blue-dark); background: var(--blue-pale); font-size: 11px; font-weight: 700; }
+    .op-add:hover { border-color: #9fc4f2; background: var(--blue-soft); }
+    .operations { display: flex; flex-direction: column; gap: 7px; margin: 14px 0; overflow-y: auto; min-height: 90px; max-height: 214px; }
+    .op-card { display: grid; grid-template-columns: 27px 1fr auto; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--white); }
+    .op-index { width: 27px; height: 27px; border-radius: 8px; display: grid; place-items: center; color: var(--blue); background: var(--blue-soft); font-size: 11px; font-weight: 800; }
+    .op-title { font-size: 12px; font-weight: 800; text-transform: capitalize; }
+    .op-summary { max-width: 175px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; margin-top: 2px; }
+    .op-actions { display: grid; grid-template-columns: repeat(2, 24px); gap: 2px; }
+    .icon-btn { width: 24px; height: 24px; border: 0; border-radius: 6px; color: var(--blue); background: transparent; font-size: 14px; }
+    .icon-btn:hover { background: var(--blue-soft); }
+    .run { margin-top: auto; width: 100%; border: 0; border-radius: 11px; padding: 12px 16px; color: var(--white); background: var(--blue); font-weight: 800; box-shadow: 0 8px 18px rgba(23,105,224,.2); }
+    .run:hover { background: var(--blue-dark); }
+    .run:disabled { opacity: .55; cursor: not-allowed; }
+    .hint { margin: 9px 2px 0; color: var(--muted); text-align: center; font-size: 10px; }
+    .modal-backdrop, .loader { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgba(19, 57, 104, .28); backdrop-filter: blur(5px); }
+    .modal-backdrop[hidden], .loader[hidden] { display: none; }
+    .modal { width: min(520px, 100%); max-height: min(720px, calc(100vh - 40px)); overflow: auto; border-radius: 18px; background: var(--white); box-shadow: 0 24px 70px rgba(18,65,126,.24); }
+    .modal-head { padding: 19px 21px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .modal h3 { margin: 0; font-size: 17px; text-transform: capitalize; }
+    .close { width: 31px; height: 31px; border: 0; border-radius: 9px; color: var(--blue); background: var(--blue-soft); font-size: 18px; }
+    .form { padding: 20px 21px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 15px; }
+    .field { display: grid; gap: 6px; }
+    .field.full { grid-column: 1 / -1; }
+    .color-wrap { display: grid; grid-template-columns: 46px 1fr; align-items: center; gap: 9px; }
+    .color-wrap[hidden] { display: none; }
+    input[type="color"] { width: 46px; height: 38px; padding: 3px; border: 1px solid #cfe0f3; border-radius: 9px; background: white; }
+    .corner-fill { min-width: 0; margin: 0; padding: 0; border: 0; }
+    .corner-fill legend { margin-bottom: 6px; padding: 0; font-size: 12px; font-weight: 700; }
+    .fill-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .fill-options .check { cursor: pointer; }
+    .fill-options .check:has(:checked) { border-color: var(--blue); color: var(--blue-dark); background: var(--blue-soft); }
+    .fill-options input { margin: 0; }
+    .fill-swatch { flex: 0 0 18px; height: 18px; border: 1px solid #a9bfd9; border-radius: 4px; background: white; }
+    .fill-swatch.transparent { background: repeating-conic-gradient(#c3d3e7 0% 25%, white 0% 50%) 0 0 / 8px 8px; }
+    .check { min-height: 40px; padding: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--blue-pale); }
+    .check input { accent-color: var(--blue); }
+    .range-wrap { display: grid; grid-template-columns: 1fr 62px; align-items: center; gap: 10px; }
+    input[type="range"] { accent-color: var(--blue); }
+    .modal-actions { padding: 15px 21px 20px; display: flex; justify-content: flex-end; gap: 9px; }
+    .secondary, .primary { border-radius: 9px; padding: 9px 15px; font-weight: 800; }
+    .secondary { border: 1px solid var(--line); color: var(--blue-dark); background: white; }
+    .primary { border: 1px solid var(--blue); color: white; background: var(--blue); }
+    .loader-card { width: min(330px, 100%); padding: 28px; border-radius: 18px; text-align: center; background: white; box-shadow: 0 24px 70px rgba(18,65,126,.24); }
+    .spinner { width: 38px; height: 38px; margin: 0 auto 16px; border-radius: 50%; border: 4px solid var(--blue-soft); border-top-color: var(--blue); animation: spin .8s linear infinite; }
+    .loader-title { font-weight: 800; }
+    .loader-copy { color: var(--muted); font-size: 12px; margin-top: 5px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; z-index: 40; max-width: 360px; padding: 12px 15px; border-radius: 11px; color: white; background: var(--blue-dark); box-shadow: var(--shadow); font-size: 12px; transform: translateY(18px); opacity: 0; pointer-events: none; transition: .2s ease; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 1050px) { .workspace { grid-template-columns: 1fr 300px 1fr; } .gallery { grid-template-columns: 1fr; } }
+    @media (max-width: 780px) { .shell { width: min(100% - 24px, 620px); padding-top: 20px; } .workspace { grid-template-columns: 1fr; } .pipeline { grid-row: 1; } .panel { min-height: 420px; } .gallery { grid-template-columns: repeat(2,minmax(0,1fr)); max-height: none; } header { align-items: flex-start; } .status { margin-top: 10px; } }
+    @media (max-width: 370px) { .fill-options { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand"><div class="brand-mark">IB</div><div><h1>Image Batch Studio</h1><div class="subtitle">Configure once. Process every image.</div></div></div>
+      <div class="status"><span class="status-dot"></span><span>4 parallel workers ready</span></div>
+    </header>
+    <main class="workspace">
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Source</div><h2>Input folder</h2><div class="folder-path">./input</div></div><div class="count" id="inputCount">0</div></div>
+        <div class="gallery" id="inputGallery"></div>
+      </section>
+      <section class="panel pipeline">
+        <div class="panel-head"><div><div class="eyebrow">Recipe</div><h2>Processing pipeline</h2></div><div class="count" id="opCount">0</div></div>
+        <div class="pipeline-body">
+          <div class="preset-label"><label>Quick configurations</label><span class="eyebrow" id="presetState">Custom</span></div>
+          <div class="preset-grid" id="presetGrid"></div>
+          <div class="format-row"><label for="outputFormat">Output format</label><select id="outputFormat"><option value="">Keep original</option><option value="png">PNG</option><option value="jpg">JPEG</option><option value="webp">WebP</option><option value="bmp">BMP</option><option value="tiff">TIFF</option><option value="jp2">JPEG 2000</option></select></div>
+          <div class="add-label"><label>Add operation</label><span class="eyebrow">Applied in order</span></div>
+          <div class="add-grid" id="addGrid"></div>
+          <div class="operations" id="operations"></div>
+          <button class="run" id="runButton">Run batch</button>
+          <div class="hint">Processes every image in the local input folder</div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Result</div><h2>Output folder</h2><div class="folder-path">./output</div></div><div class="panel-head-actions"><button class="clear-button" id="clearButton">Clear</button><div class="count" id="outputCount">0</div></div></div>
+        <div class="gallery" id="outputGallery"></div>
+      </section>
+    </main>
+  </div>
+  <div class="modal-backdrop" id="modalBackdrop" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-head"><h3 id="modalTitle"></h3><button class="close" id="modalClose" aria-label="Close">×</button></div><form id="operationForm"><div class="form" id="formFields"></div><div class="modal-actions"><button type="button" class="secondary" id="cancelButton">Cancel</button><button type="submit" class="primary">Save operation</button></div></form></section></div>
+  <div class="modal-backdrop" id="clearModal" hidden><section class="modal" role="alertdialog" aria-modal="true" aria-labelledby="clearTitle" aria-describedby="clearDescription"><div class="modal-head"><h3 id="clearTitle">Clear output folder?</h3><button class="close" id="clearClose" aria-label="Close">×</button></div><div class="form" style="display:block"><p id="clearDescription" style="margin:0; color:var(--muted); font-size:13px; line-height:1.6">This permanently deletes every image currently inside <strong style="color:var(--ink)">./output</strong>. Non-image files will remain untouched.</p></div><div class="modal-actions"><button type="button" class="secondary" id="clearCancel">Cancel</button><button type="button" class="primary" id="clearConfirm">Delete all images</button></div></section></div>
+  <div class="loader" id="loader" hidden><div class="loader-card"><div class="spinner"></div><div class="loader-title">Processing your batch</div><div class="loader-copy">Applying each operation in sequence…</div></div></div>
+  <div class="toast" id="toast"></div>
+  <script>
+    const definitions = {
+      crop: { label: 'Crop', defaults: { left: 0, top: 0, right: 0, bottom: 0 }, fields: [num('left','Left (px)'),num('top','Top (px)'),num('right','Right (px)'),num('bottom','Bottom (px)')] },
+      flip: { label: 'Flip', defaults: { horizontal: true, vertical: false }, fields: [check('horizontal','Flip horizontally'),check('vertical','Flip vertically')] },
+      rotate: { label: 'Rotate', defaults: { angle: 90, direction: 'cw', fill_color: [255,255,255] }, fields: [num('angle','Angle (degrees)',0,0.1),selectField('direction','Direction',[['cw','Clockwise'],['ccw','Counter-clockwise']]),cornerFill('Angles between multiples of 90° create space around the image.')] },
+      border: { label: 'Border', defaults: { width: 40, height: 40, color: [255,255,255], h_align: 'center', v_align: 'center' }, fields: [num('width','Added width (px)'),num('height','Added height (px)'),color('color','Border color'),selectField('h_align','Horizontal alignment',[['left','Left'],['center','Center'],['right','Right']]),selectField('v_align','Vertical alignment',[['top','Top'],['center','Center'],['bottom','Bottom']])] },
+      border_radius: { label: 'Radius', defaults: { radius: 24, fill_color: null }, fields: [num('radius','Corner radius (px)'),cornerFill()] },
+      resize: { label: 'Resize', defaults: { width: 1200, height: 800 }, fields: [num('width','Max width (px)',1),num('height','Max height (px)',1)] },
+      overlay: { label: 'Overlay', defaults: { image_url: '', position: 'bottom_right', x: 20, y: 20, opacity: 1 }, fields: [textField('image_url','Image URL or local path','text',true),selectField('position','Placement',[['coordinates','Exact coordinates'],['top_left','Top left'],['top_right','Top right'],['bottom_left','Bottom left'],['bottom_right','Bottom right'],['center','Center']]),num('x','X coordinate / margin (px)',0),num('y','Y coordinate / margin (px)',0),num('width','Width (optional)',1,1,false),num('height','Height (optional)',1,1,false),rangeField('opacity','Opacity')] }
+    };
+    const presets = [
+      { id: 'soft-png', name: 'Soft PNG', copy: 'Dark blue · subtle finish', output_format: 'png', operations: [{type:'crop',left:4,top:4,right:4,bottom:4},{type:'flip',horizontal:false,vertical:false},{type:'rotate',angle:0,direction:'cw',fill_color:[255,255,255]},{type:'border',width:36,height:36,color:[23,78,166],h_align:'center',v_align:'center'},{type:'resize',width:1600,height:1600},{type:'border_radius',radius:50},{type:'overlay',image_url:'demo/assets/login_logo.png',position:'bottom_right',x:20,y:20,width:180,height:72,opacity:.9}] },
+      { id: 'web-ready', name: 'Web Ready', copy: 'Dark red · lossless WebP', output_format: 'webp', operations: [{type:'crop',left:8,top:8,right:8,bottom:8},{type:'flip',horizontal:true,vertical:false},{type:'rotate',angle:1.5,direction:'cw',fill_color:[255,255,255]},{type:'border',width:24,height:24,color:[145,28,28],h_align:'center',v_align:'center'},{type:'resize',width:1600,height:1600},{type:'border_radius',radius:28},{type:'overlay',image_url:'demo/assets/login_logo.png',position:'bottom_right',x:18,y:18,width:160,height:64,opacity:.85}] },
+      { id: 'navy-frame', name: 'Navy Frame', copy: 'Deep navy · presentation', output_format: 'png', operations: [{type:'crop',left:12,top:12,right:12,bottom:12},{type:'flip',horizontal:false,vertical:false},{type:'rotate',angle:2,direction:'ccw',fill_color:[255,255,255]},{type:'border',width:80,height:80,color:[15,52,91],h_align:'center',v_align:'center'},{type:'resize',width:1200,height:1200},{type:'border_radius',radius:36},{type:'overlay',image_url:'demo/assets/login_logo.png',position:'bottom_right',x:16,y:16,width:140,height:56,opacity:1}] }
+    ];
+    function num(key,label,min=0,step=1,required=true){ return {key,label,type:'number',min,step,required}; }
+    function check(key,label){ return {key,label,type:'checkbox'}; }
+    function color(key,label){ return {key,label,type:'color',full:true}; }
+    function cornerFill(hint){ return {key:'fill_color',label:'Corner fill',type:'cornerFill',hint}; }
+    function selectField(key,label,options){ return {key,label,type:'select',options}; }
+    function textField(key,label,type='text',required=false){ return {key,label,type,required,full:true}; }
+    function rangeField(key,label){ return {key,label,type:'range',min:0,max:1,step:.05,full:true}; }
+    let operations = [], editingIndex = null, activePreset = null;
+    const $ = id => document.getElementById(id);
+    const addGrid = $('addGrid'), operationsEl = $('operations'), modal = $('modalBackdrop'), fieldsEl = $('formFields');
+
+    function renderPresets(){ $('presetGrid').innerHTML=presets.map(preset=>`<button class="preset${preset.id===activePreset?' active':''}" data-preset="${preset.id}" aria-pressed="${preset.id===activePreset}"><span class="preset-name">${preset.name}</span><span class="preset-copy">${preset.copy}</span></button>`).join(''); $('presetState').textContent=activePreset?presets.find(p=>p.id===activePreset).name:'Custom'; }
+    function markCustom(){ activePreset=null; renderPresets(); }
+    function applyPreset(id){ const preset=presets.find(item=>item.id===id); activePreset=id; operations=structuredClone(preset.operations); $('outputFormat').value=preset.output_format; renderPresets(); renderOperations(); showToast(`${preset.name} configuration loaded.`); }
+    function matchingPreset(){ const format=$('outputFormat').value; const serialized=JSON.stringify(operations); return presets.find(preset=>preset.output_format===format&&JSON.stringify(preset.operations)===serialized)?.id||null; }
+    $('presetGrid').addEventListener('click',event=>{ const button=event.target.closest('[data-preset]'); if(button)applyPreset(button.dataset.preset); });
+    $('outputFormat').addEventListener('change',markCustom);
+    Object.entries(definitions).forEach(([type,def]) => { const button=document.createElement('button'); button.className='op-add'; button.textContent=`+ ${def.label}`; button.addEventListener('click',()=>openModal(type)); addGrid.append(button); });
+    function formatBytes(bytes){ if(bytes<1024)return `${bytes} B`; if(bytes<1048576)return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1048576).toFixed(1)} MB`; }
+    function renderGallery(target,items,kind){ const el=$(target), count=$(kind+'Count'); count.textContent=items.length; if(kind==='output')$('clearButton').disabled=items.length===0; if(!items.length){ el.innerHTML=`<div class="empty"><div><div class="empty-orb">${kind==='input'?'＋':'✓'}</div><strong>${kind==='input'?'No input images':'No output yet'}</strong><div>${kind==='input'?'Add images to the input folder':'Run the pipeline to create results'}</div></div></div>`; return; } el.innerHTML=items.map(item=>`<article class="image-card"><a class="thumb" href="${item.file_url}" target="_blank" title="Open full image"><img src="${item.url}" alt="${escapeHtml(item.name)}" loading="lazy"></a><div class="file-meta"><div class="filename" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div><div class="filesize">${formatBytes(item.size)}</div></div></article>`).join(''); }
+    function escapeHtml(value){ return value.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function cornerFillValue(op) {
+      return Object.hasOwn(op, 'fill_color') ? op.fill_color : definitions[op.type].defaults.fill_color;
+    }
+    function summary(op) {
+      const details = Object.entries(op)
+        .filter(([key]) => key !== 'type' && key !== 'fill_color')
+        .map(([key, value]) => `${key.replaceAll('_', ' ')}: ${Array.isArray(value) ? value.join(',') : value}`);
+      if (Object.hasOwn(definitions[op.type].defaults, 'fill_color')) {
+        const fill = cornerFillValue(op);
+        details.push(`corner fill: ${fill === null ? 'Transparent' : rgbToHex(fill).toUpperCase()}`);
+      }
+      return details.join(' · ');
+    }
+    function renderOperations(){ $('opCount').textContent=operations.length; if(!operations.length){ operationsEl.innerHTML='<div class="empty" style="min-height:90px"><div>Add operations above</div></div>'; return; } operationsEl.innerHTML=operations.map((op,i)=>`<div class="op-card"><div class="op-index">${i+1}</div><div><div class="op-title">${definitions[op.type].label}</div><div class="op-summary">${escapeHtml(summary(op))}</div></div><div class="op-actions"><button class="icon-btn" data-action="edit" data-i="${i}" title="Edit">✎</button><button class="icon-btn" data-action="delete" data-i="${i}" title="Delete">×</button><button class="icon-btn" data-action="up" data-i="${i}" title="Move up">↑</button><button class="icon-btn" data-action="down" data-i="${i}" title="Move down">↓</button></div></div>`).join(''); }
+    operationsEl.addEventListener('click',event=>{ const button=event.target.closest('button'); if(!button)return; const i=Number(button.dataset.i), action=button.dataset.action; if(action==='edit'){openModal(operations[i].type,i);return;} if(action==='delete')operations.splice(i,1); if(action==='up'&&i>0)[operations[i-1],operations[i]]=[operations[i],operations[i-1]]; if(action==='down'&&i<operations.length-1)[operations[i+1],operations[i]]=[operations[i],operations[i+1]]; markCustom(); renderOperations(); });
+    function rgbToHex(rgb){ return '#'+rgb.map(v=>Number(v).toString(16).padStart(2,'0')).join(''); }
+    function hexToRgb(hex){ return [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)); }
+    function colorPicker(key, value, label) {
+      const row = document.createElement('div');
+      const hex = rgbToHex(value);
+      row.className = 'color-wrap';
+      row.innerHTML = `<input id="field-${key}" name="${key}" type="color" value="${hex}" aria-label="${label}"><span class="filesize">${hex.toUpperCase()}</span>`;
+      const [input, text] = row.children;
+      input.addEventListener('input', () => text.textContent = input.value.toUpperCase());
+      return row;
+    }
+
+    function renderCornerFill(field, value) {
+      const group = document.createElement('fieldset');
+      group.className = 'field full corner-fill';
+      group.innerHTML = `
+        <legend>${field.label}</legend>
+        <div class="fill-options">
+          <label class="check"><input type="radio" name="fill-mode" value="transparent">
+            <span class="fill-swatch transparent" aria-hidden="true"></span>Transparent
+          </label>
+          <label class="check"><input type="radio" name="fill-mode" value="solid">
+            <span class="fill-swatch" aria-hidden="true"></span>Solid color
+          </label>
+        </div>`;
+      const [transparent, solid] = group.querySelectorAll('input');
+      const solidSwatch = solid.nextElementSibling;
+      const picker = colorPicker(field.key, value ?? [255, 255, 255], 'Solid corner color');
+      const input = picker.querySelector('input');
+      const syncPicker = () => {
+        picker.hidden = transparent.checked;
+        input.disabled = transparent.checked;
+      };
+      transparent.checked = value === null;
+      solid.checked = value !== null;
+      solidSwatch.style.backgroundColor = input.value;
+      input.addEventListener('input', () => solidSwatch.style.backgroundColor = input.value);
+      group.addEventListener('change', syncPicker);
+      group.append(picker);
+      if (field.hint) {
+        const hint = document.createElement('span');
+        hint.id = 'corner-fill-hint';
+        hint.className = 'filesize';
+        hint.textContent = field.hint;
+        group.setAttribute('aria-describedby', hint.id);
+        group.append(hint);
+      }
+      syncPicker();
+      return group;
+    }
+
+    function openModal(type, index = null) {
+      editingIndex = index;
+      const def = definitions[type];
+      const values = index === null ? {type, ...def.defaults} : operations[index];
+      $('modalTitle').textContent = `${index === null ? 'Add' : 'Edit'} ${def.label}`;
+      fieldsEl.dataset.type = type;
+      fieldsEl.innerHTML = '';
+      for (const field of def.fields) {
+        if (field.type === 'cornerFill') {
+          fieldsEl.append(renderCornerFill(field, cornerFillValue(values)));
+          continue;
+        }
+        const wrapper = document.createElement('div');
+        wrapper.className = `field${field.full ? ' full' : ''}`;
+        if (field.type === 'checkbox') {
+          wrapper.innerHTML = `<label class="check"><input id="field-${field.key}" name="${field.key}" type="checkbox" ${values[field.key] ? 'checked' : ''}> ${field.label}</label>`;
+        } else {
+          const label = document.createElement('label');
+          label.htmlFor = `field-${field.key}`;
+          label.textContent = field.label;
+          wrapper.append(label);
+          if (field.type === 'select') {
+            const input = document.createElement('select');
+            input.id = `field-${field.key}`;
+            input.name = field.key;
+            field.options.forEach(([value, text]) => input.add(new Option(text, value)));
+            input.value = values[field.key];
+            wrapper.append(input);
+          } else if (field.type === 'color') {
+            wrapper.append(colorPicker(field.key, values[field.key], field.label));
+          } else if (field.type === 'range') {
+            const row = document.createElement('div');
+            row.className = 'range-wrap';
+            row.innerHTML = `<input id="field-${field.key}" name="${field.key}" type="range" min="${field.min}" max="${field.max}" step="${field.step}" value="${values[field.key]}"><input id="range-${field.key}" type="number" min="${field.min}" max="${field.max}" step="${field.step}" value="${values[field.key]}">`;
+            const [range, number] = row.children;
+            range.addEventListener('input', () => number.value = range.value);
+            number.addEventListener('input', () => range.value = number.value);
+            wrapper.append(row);
+          } else {
+            const input = document.createElement('input');
+            input.id = `field-${field.key}`;
+            input.name = field.key;
+            input.type = field.type;
+            if (field.min != null) input.min = field.min;
+            if (field.step) input.step = field.step;
+            input.required = field.required;
+            input.value = values[field.key] ?? '';
+            wrapper.append(input);
+          }
+        }
+        fieldsEl.append(wrapper);
+      }
+      modal.hidden = false;
+      setTimeout(() => fieldsEl.querySelector('input,select')?.focus(), 20);
+    }
+    function closeModal(){ modal.hidden=true; editingIndex=null; }
+    $('modalClose').onclick=$('cancelButton').onclick=closeModal;
+    modal.addEventListener('click',e=>{if(e.target===modal)closeModal();});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!modal.hidden)closeModal(); if(e.key==='Escape'&&!clearModal.hidden)closeClearModal();});
+    $('operationForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const type = fieldsEl.dataset.type;
+      const op = {type};
+      for (const field of definitions[type].fields) {
+        const input = $(`field-${field.key}`);
+        if (field.type === 'checkbox') {
+          op[field.key] = input.checked;
+        } else if (field.type === 'cornerFill') {
+          op[field.key] = input.disabled ? null : hexToRgb(input.value);
+        } else if (field.type === 'color') {
+          op[field.key] = hexToRgb(input.value);
+        } else if (field.type === 'number' || field.type === 'range') {
+          if (input.value !== '') op[field.key] = Number(input.value);
+        } else {
+          op[field.key] = input.value;
+        }
+      }
+      if (type === 'overlay' && ('width' in op) !== ('height' in op)) {
+        showToast('Overlay width and height must be provided together.');
+        return;
+      }
+      if (editingIndex === null) operations.push(op);
+      else operations[editingIndex] = op;
+      markCustom();
+      closeModal();
+      renderOperations();
+    });
+    function showToast(message){ const toast=$('toast'); toast.textContent=message; toast.classList.add('show'); clearTimeout(showToast.timer); showToast.timer=setTimeout(()=>toast.classList.remove('show'),3500); }
+    async function loadState(){ try{ const response=await fetch('/api/state'); const state=await response.json(); renderGallery('inputGallery',state.input,'input'); renderGallery('outputGallery',state.output,'output'); operations=Array.isArray(state.config.operations)?state.config.operations:[]; $('outputFormat').value=state.config.output_format||''; activePreset=matchingPreset(); renderPresets(); renderOperations(); }catch{ renderPresets(); showToast('Could not load the local folders.'); } }
+    $('runButton').addEventListener('click',async()=>{ const button=$('runButton'); button.disabled=true; $('loader').hidden=false; try{ const response=await fetch('/api/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({output_format:$('outputFormat').value||null,operations})}); const result=await response.json(); if(!response.ok)throw new Error(result.error||'Processing failed'); renderGallery('outputGallery',result.output,'output'); showToast(`${result.succeeded} image${result.succeeded===1?'':'s'} processed${result.failed?`, ${result.failed} failed`:''}.`); }catch(error){ showToast(error.message); }finally{ $('loader').hidden=true; button.disabled=false; } });
+    const clearModal=$('clearModal');
+    function closeClearModal(){ clearModal.hidden=true; }
+    $('clearButton').addEventListener('click',()=>{ clearModal.hidden=false; setTimeout(()=>$('clearCancel').focus(),20); });
+    $('clearClose').onclick=$('clearCancel').onclick=closeClearModal;
+    clearModal.addEventListener('click',event=>{ if(event.target===clearModal)closeClearModal(); });
+    $('clearConfirm').addEventListener('click',async()=>{ const button=$('clearConfirm'); button.disabled=true; button.textContent='Deleting…'; try{ const response=await fetch('/api/clear-output',{method:'POST'}); const result=await response.json(); if(!response.ok)throw new Error(result.error||'Could not clear output'); renderGallery('outputGallery',result.output,'output'); closeClearModal(); showToast(`${result.deleted} output image${result.deleted===1?'':'s'} deleted${result.failed?`, ${result.failed} could not be deleted`:''}.`); }catch(error){ closeClearModal(); showToast(error.message); }finally{ button.disabled=false; button.textContent='Delete all images'; } });
+    loadState();
+  </script>
+</body>
+</html>
