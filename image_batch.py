@@ -111,7 +111,9 @@ def _validate_operation(raw: Any, index: int) -> dict[str, Any]:
     elif kind == "border":
         op["width"] = _require_int(op.get("width", 0), f"{label}.width", minimum=0)
         op["height"] = _require_int(op.get("height", 0), f"{label}.height", minimum=0)
-        op["color"] = _require_color(op.get("color"), f"{label}.color")
+        if "color" not in op:
+            raise ValueError(f"{label}.color must be null or an [r, g, b] list")
+        op["color"] = _require_fill_color(op["color"], f"{label}.color")
         op["h_align"] = op.get("h_align", "center")
         op["v_align"] = op.get("v_align", "center")
         if op["h_align"] not in {"left", "center", "right"}:
@@ -291,15 +293,27 @@ def _from_pillow(image: Image.Image) -> np.ndarray:
 
 
 def border(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    source = _to_pillow(image)
     added_width, added_height = params["width"], params["height"]
-    canvas_size = (source.width + added_width, source.height + added_height)
-    color = params["color"] + ((255,) if source.mode == "RGBA" else ())
-    canvas = Image.new(source.mode, canvas_size, color)
-    x = {"left": 0, "center": added_width // 2, "right": added_width}[params["h_align"]]
-    y = {"top": 0, "center": added_height // 2, "bottom": added_height}[params["v_align"]]
-    canvas.paste(source, (x, y))
-    return _from_pillow(canvas)
+    if added_width == 0 and added_height == 0:
+        return image
+    left = {"left": 0, "center": added_width // 2, "right": added_width}[params["h_align"]]
+    top = {"top": 0, "center": added_height // 2, "bottom": added_height}[params["v_align"]]
+    color = params["color"]
+    if color is None:
+        if image.ndim == 2 or image.shape[2] == 3:
+            image = _with_alpha(image)
+        fill = (0, 0, 0, 0)
+    else:
+        if image.ndim == 2:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        max_alpha = _opaque_alpha(image.dtype)
+        red, green, blue = color
+        fill = tuple(channel * (max_alpha / 255) for channel in (blue, green, red))
+        if image.shape[2] == 4:
+            fill += (max_alpha,)
+    return cv2.copyMakeBorder(
+        image, top, added_height - top, left, added_width - left, cv2.BORDER_CONSTANT, value=fill
+    )
 
 
 def border_radius(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:

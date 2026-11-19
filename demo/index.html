@@ -98,8 +98,8 @@
     .color-wrap { display: grid; grid-template-columns: 46px 1fr; align-items: center; gap: 9px; }
     .color-wrap[hidden] { display: none; }
     input[type="color"] { width: 46px; height: 38px; padding: 3px; border: 1px solid #cfe0f3; border-radius: 9px; background: white; }
-    .corner-fill { min-width: 0; margin: 0; padding: 0; border: 0; }
-    .corner-fill legend { margin-bottom: 6px; padding: 0; font-size: 12px; font-weight: 700; }
+    .fill-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+    .fill-field legend { margin-bottom: 6px; padding: 0; font-size: 12px; font-weight: 700; }
     .fill-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .fill-options .check { cursor: pointer; }
     .fill-options .check:has(:checked) { border-color: var(--blue); color: var(--blue-dark); background: var(--blue-soft); }
@@ -164,9 +164,9 @@
     const definitions = {
       crop: { label: 'Crop', defaults: { left: 0, top: 0, right: 0, bottom: 0 }, fields: [num('left','Left (px)'),num('top','Top (px)'),num('right','Right (px)'),num('bottom','Bottom (px)')] },
       flip: { label: 'Flip', defaults: { horizontal: true, vertical: false }, fields: [check('horizontal','Flip horizontally'),check('vertical','Flip vertically')] },
-      rotate: { label: 'Rotate', defaults: { angle: 90, direction: 'cw', fill_color: [255,255,255] }, fields: [num('angle','Angle (degrees)',0,0.1),selectField('direction','Direction',[['cw','Clockwise'],['ccw','Counter-clockwise']]),cornerFill('Angles between multiples of 90° create space around the image.')] },
-      border: { label: 'Border', defaults: { width: 40, height: 40, color: [255,255,255], h_align: 'center', v_align: 'center' }, fields: [num('width','Added width (px)'),num('height','Added height (px)'),color('color','Border color'),selectField('h_align','Horizontal alignment',[['left','Left'],['center','Center'],['right','Right']]),selectField('v_align','Vertical alignment',[['top','Top'],['center','Center'],['bottom','Bottom']])] },
-      border_radius: { label: 'Radius', defaults: { radius: 24, fill_color: null }, fields: [num('radius','Corner radius (px)'),cornerFill()] },
+      rotate: { label: 'Rotate', defaults: { angle: 90, direction: 'cw', fill_color: [255,255,255] }, fields: [num('angle','Angle (degrees)',0,0.1),selectField('direction','Direction',[['cw','Clockwise'],['ccw','Counter-clockwise']]),fillField('fill_color','Corner fill','Angles between multiples of 90° create space around the image.')] },
+      border: { label: 'Border', defaults: { width: 40, height: 40, color: [255,255,255], h_align: 'center', v_align: 'center' }, fields: [num('width','Added width (px)'),num('height','Added height (px)'),fillField('color','Border fill'),selectField('h_align','Horizontal alignment',[['left','Left'],['center','Center'],['right','Right']]),selectField('v_align','Vertical alignment',[['top','Top'],['center','Center'],['bottom','Bottom']])] },
+      border_radius: { label: 'Radius', defaults: { radius: 24, fill_color: null }, fields: [num('radius','Corner radius (px)'),fillField('fill_color','Corner fill')] },
       resize: { label: 'Resize', defaults: { width: 1200, height: 800 }, fields: [num('width','Max width (px)',1),num('height','Max height (px)',1)] },
       overlay: { label: 'Overlay', defaults: { image_url: '', position: 'bottom_right', x: 20, y: 20, opacity: 1 }, fields: [textField('image_url','Image URL or local path','text',true),selectField('position','Placement',[['coordinates','Exact coordinates'],['top_left','Top left'],['top_right','Top right'],['bottom_left','Bottom left'],['bottom_right','Bottom right'],['center','Center']]),num('x','X coordinate / margin (px)',0),num('y','Y coordinate / margin (px)',0),num('width','Width (optional)',1,1,false),num('height','Height (optional)',1,1,false),rangeField('opacity','Opacity')] }
     };
@@ -177,8 +177,7 @@
     ];
     function num(key,label,min=0,step=1,required=true){ return {key,label,type:'number',min,step,required}; }
     function check(key,label){ return {key,label,type:'checkbox'}; }
-    function color(key,label){ return {key,label,type:'color',full:true}; }
-    function cornerFill(hint){ return {key:'fill_color',label:'Corner fill',type:'cornerFill',hint}; }
+    function fillField(key,label,hint){ return {key,label,type:'fill',hint}; }
     function selectField(key,label,options){ return {key,label,type:'select',options}; }
     function textField(key,label,type='text',required=false){ return {key,label,type,required,full:true}; }
     function rangeField(key,label){ return {key,label,type:'range',min:0,max:1,step:.05,full:true}; }
@@ -196,16 +195,17 @@
     function formatBytes(bytes){ if(bytes<1024)return `${bytes} B`; if(bytes<1048576)return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1048576).toFixed(1)} MB`; }
     function renderGallery(target,items,kind){ const el=$(target), count=$(kind+'Count'); count.textContent=items.length; if(kind==='output')$('clearButton').disabled=items.length===0; if(!items.length){ el.innerHTML=`<div class="empty"><div><div class="empty-orb">${kind==='input'?'＋':'✓'}</div><strong>${kind==='input'?'No input images':'No output yet'}</strong><div>${kind==='input'?'Add images to the input folder':'Run the pipeline to create results'}</div></div></div>`; return; } el.innerHTML=items.map(item=>`<article class="image-card"><a class="thumb" href="${item.file_url}" target="_blank" title="Open full image"><img src="${item.url}" alt="${escapeHtml(item.name)}" loading="lazy"></a><div class="file-meta"><div class="filename" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div><div class="filesize">${formatBytes(item.size)}</div></div></article>`).join(''); }
     function escapeHtml(value){ return value.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-    function cornerFillValue(op) {
-      return Object.hasOwn(op, 'fill_color') ? op.fill_color : definitions[op.type].defaults.fill_color;
+    function fillValue(op, key) {
+      return Object.hasOwn(op, key) ? op[key] : definitions[op.type].defaults[key];
     }
     function summary(op) {
+      const field = definitions[op.type].fields.find(field => field.type === 'fill');
       const details = Object.entries(op)
-        .filter(([key]) => key !== 'type' && key !== 'fill_color')
+        .filter(([key]) => key !== 'type' && key !== field?.key)
         .map(([key, value]) => `${key.replaceAll('_', ' ')}: ${Array.isArray(value) ? value.join(',') : value}`);
-      if (Object.hasOwn(definitions[op.type].defaults, 'fill_color')) {
-        const fill = cornerFillValue(op);
-        details.push(`corner fill: ${fill === null ? 'Transparent' : rgbToHex(fill).toUpperCase()}`);
+      if (field) {
+        const fill = fillValue(op, field.key);
+        details.push(`${field.label.toLowerCase()}: ${fill === null ? 'Transparent' : rgbToHex(fill).toUpperCase()}`);
       }
       return details.join(' · ');
     }
@@ -223,9 +223,9 @@
       return row;
     }
 
-    function renderCornerFill(field, value) {
+    function renderFill(field, value) {
       const group = document.createElement('fieldset');
-      group.className = 'field full corner-fill';
+      group.className = 'field full fill-field';
       group.innerHTML = `
         <legend>${field.label}</legend>
         <div class="fill-options">
@@ -238,7 +238,7 @@
         </div>`;
       const [transparent, solid] = group.querySelectorAll('input');
       const solidSwatch = solid.nextElementSibling;
-      const picker = colorPicker(field.key, value ?? [255, 255, 255], 'Solid corner color');
+      const picker = colorPicker(field.key, value ?? [255, 255, 255], `${field.label} color`);
       const input = picker.querySelector('input');
       const syncPicker = () => {
         picker.hidden = transparent.checked;
@@ -252,7 +252,7 @@
       group.append(picker);
       if (field.hint) {
         const hint = document.createElement('span');
-        hint.id = 'corner-fill-hint';
+        hint.id = 'fill-hint';
         hint.className = 'filesize';
         hint.textContent = field.hint;
         group.setAttribute('aria-describedby', hint.id);
@@ -270,8 +270,8 @@
       fieldsEl.dataset.type = type;
       fieldsEl.innerHTML = '';
       for (const field of def.fields) {
-        if (field.type === 'cornerFill') {
-          fieldsEl.append(renderCornerFill(field, cornerFillValue(values)));
+        if (field.type === 'fill') {
+          fieldsEl.append(renderFill(field, fillValue(values, field.key)));
           continue;
         }
         const wrapper = document.createElement('div');
@@ -290,8 +290,6 @@
             field.options.forEach(([value, text]) => input.add(new Option(text, value)));
             input.value = values[field.key];
             wrapper.append(input);
-          } else if (field.type === 'color') {
-            wrapper.append(colorPicker(field.key, values[field.key], field.label));
           } else if (field.type === 'range') {
             const row = document.createElement('div');
             row.className = 'range-wrap';
@@ -329,10 +327,8 @@
         const input = $(`field-${field.key}`);
         if (field.type === 'checkbox') {
           op[field.key] = input.checked;
-        } else if (field.type === 'cornerFill') {
+        } else if (field.type === 'fill') {
           op[field.key] = input.disabled ? null : hexToRgb(input.value);
-        } else if (field.type === 'color') {
-          op[field.key] = hexToRgb(input.value);
         } else if (field.type === 'number' || field.type === 'range') {
           if (input.value !== '') op[field.key] = Number(input.value);
         } else {

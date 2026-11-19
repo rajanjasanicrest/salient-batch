@@ -47,7 +47,7 @@ Operations execute strictly from top to bottom. Remove operations you do not nee
     {"type": "crop", "left": 10, "top": 5, "right": 10, "bottom": 5},
     {"type": "flip", "horizontal": true, "vertical": false},
     {"type": "rotate", "angle": 12.5, "direction": "cw", "fill_color": null},
-    {"type": "border", "width": 40, "height": 20, "color": [20, 20, 20], "h_align": "center", "v_align": "bottom"},
+    {"type": "border", "width": 40, "height": 20, "color": null, "h_align": "center", "v_align": "bottom"},
     {"type": "border_radius", "radius": 24, "fill_color": null},
     {"type": "resize", "width": 1200, "height": 800},
     {"type": "overlay", "image_url": "assets/logo.png", "x": 20, "y": 20, "width": 160, "height": 80, "opacity": 0.8}
@@ -60,7 +60,7 @@ Operations execute strictly from top to bottom. Remove operations you do not nee
 - `crop`: omitted side values default to `0`; the resulting image must have positive dimensions.
 - `flip`: `horizontal` and `vertical` default to `false` and can both be true.
 - `rotate` takes a non-negative `angle` and a direction of `cw` or `ccw`. For the space around the rotated image, set `fill_color` to `null` for transparency or an `[r, g, b]` list for a solid color. The default is white.
-- `border`: `width` and `height` are total added pixels. Center alignment puts the smaller half on the left/top when an odd number is split.
+- `border` adds `width` and `height` total pixels. Set `color` to `null` for transparent padding or an `[r, g, b]` list for a solid color. Center alignment puts the smaller half on the left/top when an odd number is split.
 - `border_radius` rounds all four corners by `radius` pixels. Set `fill_color` to `null` (the default) for transparent corners or an `[r, g, b]` list for a solid color. Place it after `border` to round the completed bordered canvas.
 - `resize`: fits within the box while preserving aspect ratio. It may enlarge smaller images and does not pad.
 - `overlay`: accepts an HTTP(S) URL or local path. `width` and `height` are optional but must be supplied together. `position` can be `coordinates` (the default), `top_left`, `top_right`, `bottom_left`, `bottom_right`, or `center`. For anchored positions, `x` and `y` are inward margins; for exact coordinates they retain their original top-left coordinate meaning. `opacity` defaults to `1`.
