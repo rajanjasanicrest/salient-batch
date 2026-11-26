@@ -85,6 +85,35 @@ def _require_fill_color(value: Any, label: str) -> tuple[int, int, int] | None:
     return None if value is None else _require_color(value, label)
 
 
+def _require_mask_outline(value: Any, label: str) -> list[tuple[float, float]]:
+    if not isinstance(value, list) or not 3 <= len(value) <= 2048:
+        raise ValueError(f"{label} must have between 3 and 2048 points")
+    points = []
+    for point in value:
+        if not isinstance(point, list) or len(point) != 2:
+            raise ValueError(f"{label} must contain [x, y] pairs")
+        x = _require_number(point[0], f"{label} x")
+        y = _require_number(point[1], f"{label} y")
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            raise ValueError(f"{label} coordinates must be between 0 and 1")
+        points.append((x, y))
+    doubled_area = sum(
+        x1 * y2 - y1 * x2 for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1])
+    )
+    if abs(doubled_area) <= 1e-6:
+        raise ValueError(f"{label} must enclose an area")
+    return points
+
+
+def _require_mask_bounds(value: Any, label: str) -> list[float]:
+    if not isinstance(value, list) or len(value) != 4:
+        raise ValueError(f"{label} must contain [left, top, right, bottom]")
+    left, top, right, bottom = (_require_number(coord, label) for coord in value)
+    if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+        raise ValueError(f"{label} must enclose an area within the image")
+    return [left, top, right, bottom]
+
+
 def _validate_operation(raw: Any, index: int) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError(f"operations[{index}] must be an object")
@@ -123,12 +152,52 @@ def _validate_operation(raw: Any, index: int) -> dict[str, Any]:
     elif kind == "border_radius":
         op["radius"] = _require_int(op.get("radius"), f"{label}.radius", minimum=0)
         op["fill_color"] = _require_fill_color(op.get("fill_color"), f"{label}.fill_color")
+    elif kind == "fill_white_corners":
+        if "search" in op:
+            op["search"] = _require_int(op["search"], f"{label}.search", minimum=2)
+        if "white_threshold" in op:
+            threshold = _require_int(op["white_threshold"], f"{label}.white_threshold", minimum=1)
+            if threshold > 255:
+                raise ValueError(f"{label}.white_threshold must be at most 255")
     elif kind == "resize":
         op["width"] = _require_int(op.get("width"), f"{label}.width", minimum=1)
         op["height"] = _require_int(op.get("height"), f"{label}.height", minimum=1)
-    elif kind == "overlay":
+    elif kind in {"mask", "overlay"}:
+        if kind == "mask":
+            shape = op.get("shape", "image")
+            op["shape"] = shape
+            if shape == "drawn":
+                drawing_shape = op.get("drawing_shape")
+                if drawing_shape is None:
+                    op["points"] = _require_mask_outline(op.get("points"), f"{label}.points")
+                    return op
+                if drawing_shape not in ("rectangle", "circle", "ellipse", "rounded_rectangle"):
+                    raise ValueError(f"{label}.drawing_shape is not a supported drawing tool")
+                op["bounds"] = _require_mask_bounds(op.get("bounds"), f"{label}.bounds")
+                if drawing_shape == "rounded_rectangle":
+                    roundness = _require_number(op.get("roundness", 20), f"{label}.roundness")
+                    if not 0 <= roundness <= 50:
+                        raise ValueError(f"{label}.roundness must be between 0 and 50")
+                    op["roundness"] = roundness
+                return op
+            if shape in ("rectangle", "rounded_rectangle", "ellipse"):
+                for key in ("width_percent", "height_percent"):
+                    percent = _require_number(op.get(key, 100), f"{label}.{key}")
+                    if not 1 <= percent <= 100:
+                        raise ValueError(f"{label}.{key} must be between 1 and 100")
+                    op[key] = percent
+                if shape == "rounded_rectangle":
+                    op["radius"] = _require_int(op.get("radius"), f"{label}.radius", minimum=0)
+                return op
+            if shape != "image":
+                raise ValueError(f"{label}.shape must be rectangle, rounded_rectangle, ellipse, drawn, or image")
         if not isinstance(op.get("image_url"), str) or not op["image_url"].strip():
             raise ValueError(f"{label}.image_url must be a non-empty URL or path")
+        if kind == "mask":
+            op["channel"] = op.get("channel", "auto")
+            if op["channel"] not in ("auto", "alpha", "luminance"):
+                raise ValueError(f"{label}.channel must be auto, alpha, or luminance")
+            return op
         op["position"] = op.get("position", "coordinates")
         if op["position"] not in {
             "coordinates",
@@ -316,6 +385,32 @@ def border(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     )
 
 
+def _shape_coverage(
+    size: tuple[int, int], shape: str, bounds: tuple[int, int, int, int], radius: int = 0,
+    *, points: list[tuple[float, float]] | None = None,
+) -> np.ndarray:
+    width, height = size
+    left, top, right, bottom = bounds
+    if shape == "rectangle" or (shape == "rounded_rectangle" and radius == 0):
+        coverage = np.zeros((height, width), dtype=np.uint8)
+        coverage[top:bottom, left:right] = 255
+        return coverage
+
+    scale = 4
+    coverage = Image.new("L", (width * scale, height * scale), 0)
+    draw = ImageDraw.Draw(coverage)
+    box = (left * scale, top * scale, right * scale - 1, bottom * scale - 1)
+    if points is not None:
+        draw.polygon([
+            (round(x * (width * scale - 1)), round(y * (height * scale - 1))) for x, y in points
+        ], fill=255)
+    elif shape == "ellipse":
+        draw.ellipse(box, fill=255)
+    else:
+        draw.rounded_rectangle(box, radius=radius * scale, fill=255)
+    return np.asarray(coverage.resize(size, Image.Resampling.LANCZOS))
+
+
 def border_radius(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Round the image corners with a transparent or solid fill."""
     requested_radius = params["radius"]
@@ -327,15 +422,7 @@ def border_radius(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     if radius == 0:
         return rounded
 
-    # Draw large and downsample for smooth corner edges.
-    scale = 4
-    mask = Image.new("L", (width * scale, height * scale), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, width * scale - 1, height * scale - 1),
-        radius=radius * scale,
-        fill=255,
-    )
-    coverage = np.asarray(mask.resize((width, height), Image.Resampling.LANCZOS))
+    coverage = _shape_coverage((width, height), "rounded_rectangle", (0, 0, width, height), radius)
     color = params.get("fill_color")
     if color is None:
         alpha = rounded[:, :, 3]
@@ -358,6 +445,117 @@ def border_radius(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     return rounded
 
 
+def _restore_corner_edge(
+    colors: np.ndarray, opaque: np.ndarray, white: np.ndarray, exterior: np.ndarray, step: float
+) -> None:
+    fringe_width = 8
+    edge_width = 14
+    seam_width = 3
+    feather_width = 6
+    inpaint_radius = 3
+    _, _, width, height = cv2.boundingRect(exterior.astype(np.uint8))
+    padding = edge_width + seam_width + feather_width + inpaint_radius
+    region = np.s_[: height + padding, : width + padding]
+    colors = colors[region]
+    opaque = opaque[region]
+    exterior = exterior[region]
+    distance = cv2.distanceTransform((~exterior).astype(np.uint8), cv2.DIST_L2, 5)
+    # The transition stretches along the outer edges where the curve becomes shallow.
+    rows, columns = np.ogrid[: distance.shape[0], : distance.shape[1]]
+    reach = np.where((rows < 3) | (columns < 3), edge_width, fringe_width)
+
+    # Extend local card colors from beyond the antialiased edge and JPEG ringing.
+    card_pixels = opaque & ~white[region]
+    clean = card_pixels & (distance >= reach)
+    if not clean.any():
+        clean = card_pixels
+        if not clean.any():
+            return
+        clean &= distance >= distance[clean].max() - 1
+    _, labels = cv2.distanceTransformWithLabels(
+        (~clean).astype(np.uint8), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL
+    )
+    samples = np.zeros((labels.max() + 1, 3), dtype=np.float32)
+    samples[labels[clean]] = colors[clean]
+    card = cv2.GaussianBlur(samples[labels], (5, 5), 1.0)
+
+    # A fringe pixel is a mixture of the card color and the white corner background.
+    # Require contact with the corner so similarly colored details farther in are preserved.
+    band = opaque & (distance > 0) & (distance <= reach)
+    towards_white = colors[0, 0].astype(np.float32) - card[band]
+    delta = colors[band] - card[band]
+    weight = (delta * towards_white).sum(axis=1, keepdims=True) / np.maximum(
+        (towards_white**2).sum(axis=1, keepdims=True), (16 * step) ** 2
+    )
+    residual = np.abs(delta - weight * towards_white).max(axis=1)
+    fringe = (weight[:, 0] >= 0.04) & (residual <= 18 * step) & (delta.mean(axis=1) >= 5 * step)
+    repair = exterior.astype(np.uint8)
+    repair[band] = fringe
+    cv2.floodFill(repair, None, (0, 0), 2, flags=8)
+    replace = repair == 2
+
+    # Reconstruct through the dark ringing too, then feather into the intact card.
+    seam_distance = cv2.distanceTransform((~replace).astype(np.uint8), cv2.DIST_L2, 5)
+    blend = np.clip((seam_width + feather_width - seam_distance) / feather_width, 0, 1)
+    blend *= opaque & (replace | ~white[region])
+    blend = blend**2 * (3 - 2 * blend)
+    if not np.any(clean & (blend == 0)):
+        blend[clean] = 0
+    area = blend > 0
+    inpaint_mask = area.astype(np.uint8)
+    weights = blend[area]
+    integer_pixels = np.issubdtype(colors.dtype, np.integer)
+    for channel in range(3):
+        original = np.ascontiguousarray(colors[:, :, channel], dtype=np.float32)
+        continued = cv2.inpaint(original, inpaint_mask, inpaint_radius, cv2.INPAINT_NS)
+        restored = original[area] + (continued[area] - original[area]) * weights
+        np.clip(restored, 0, 255 * step, out=restored)
+        colors[:, :, channel][area] = np.rint(restored) if integer_pixels else restored
+
+
+def fill_white_corners(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Fill each bounded white corner using a nearby card pixel from that corner."""
+    height, width = image.shape[:2]
+    short_side = min(height, width)
+    size = min(params.get("search", max(16, short_side // 4)), short_side // 2)
+    if size < 2:
+        return image
+    maximum = _opaque_alpha(image.dtype)
+    step = maximum / 255
+    threshold = params.get("white_threshold")
+    result = image.copy()
+    corners = (
+        result[:size, :size],
+        result[:size, -size:][:, ::-1],
+        result[-size:, :size][::-1, :],
+        result[-size:, -size:][::-1, ::-1],
+    )
+    for corner in corners:
+        colors = corner[:, :, :3]
+        if threshold is None:
+            tip = colors[0, 0]
+            tip_min = float(tip.min())
+            if tip_min < 220 * step or float(tip.max()) - tip_min > 18 * step:
+                continue
+            # Allow small brightness changes from lighting and compression around the tip.
+            lightest = colors.max(axis=2)
+            darkest = colors.min(axis=2)
+            white = (darkest >= max(215 * step, tip_min - 15 * step)) & (lightest - darkest <= 18 * step)
+        else:
+            white = np.all(colors >= threshold * step, axis=2)
+        opaque = corner[:, :, 3] == maximum if corner.shape[2] == 4 else np.ones_like(white)
+        connected = (white & opaque).astype(np.uint8)
+        if not connected[0, 0]:
+            continue
+        cv2.floodFill(connected, None, (0, 0), 2)
+        exterior = connected == 2
+        # A white region that extends past the search area may be a margin or part of the card.
+        if exterior[-1, :].any() or exterior[:, -1].any():
+            continue
+        _restore_corner_edge(colors, opaque, white, exterior, step)
+    return result
+
+
 def resize(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     height, width = image.shape[:2]
     scale = min(params["width"] / width, params["height"] / height)
@@ -369,14 +567,15 @@ def resize(image: np.ndarray, params: dict[str, Any]) -> np.ndarray:
 
 
 class OverlayStore:
-    """Loads each fixed overlay variant once for the entire batch."""
+    """Loads each fixed overlay or mask asset once per worker."""
 
     def __init__(self, config_dir: Path) -> None:
         self.config_dir = config_dir
         self._cache: dict[tuple[str, int | None, int | None, float], Image.Image] = {}
 
     def get(self, params: dict[str, Any]) -> Image.Image:
-        key = (params["image_url"], params.get("width"), params.get("height"), params["opacity"])
+        opacity = params.get("opacity", 1)
+        key = (params["image_url"], params.get("width"), params.get("height"), opacity)
         if key not in self._cache:
             source = params["image_url"]
             parsed = urlparse(source)
@@ -394,8 +593,8 @@ class OverlayStore:
                     asset = ImageOps.exif_transpose(opened).convert("RGBA")
             if "width" in params:
                 asset = asset.resize((params["width"], params["height"]), Image.Resampling.LANCZOS)
-            if params["opacity"] < 1:
-                alpha = asset.getchannel("A").point(lambda value: round(value * params["opacity"]))
+            if opacity < 1:
+                alpha = asset.getchannel("A").point(lambda value: round(value * opacity))
                 asset.putalpha(alpha)
             self._cache[key] = asset
         return self._cache[key]
@@ -421,12 +620,59 @@ def overlay(image: np.ndarray, params: dict[str, Any], store: OverlayStore) -> n
     return _from_pillow(base)
 
 
+def mask(image: np.ndarray, params: dict[str, Any], store: OverlayStore) -> np.ndarray:
+    height, width = image.shape[:2]
+    shape = params.get("shape", "image")
+    if shape == "drawn":
+        drawing_shape = params.get("drawing_shape")
+        if drawing_shape is None:
+            coverage = _shape_coverage((width, height), shape, (0, 0, width, height), points=params["points"])
+        else:
+            left, top, right, bottom = params["bounds"]
+            x, y = min(width - 1, round(left * width)), min(height - 1, round(top * height))
+            right, bottom = max(x + 1, round(right * width)), max(y + 1, round(bottom * height))
+            shorter_side = min(right - x, bottom - y)
+            if drawing_shape == "circle":
+                x += (right - x - shorter_side) // 2
+                y += (bottom - y - shorter_side) // 2
+                right, bottom = x + shorter_side, y + shorter_side
+                drawing_shape = "ellipse"
+            radius = round(shorter_side * params.get("roundness", 20) / 100) if drawing_shape == "rounded_rectangle" else 0
+            radius = min(radius, shorter_side // 2)
+            coverage = _shape_coverage((width, height), drawing_shape, (x, y, right, bottom), radius)
+    elif shape == "image":
+        asset = store.get({"image_url": params["image_url"]})
+        asset_coverage = asset.getchannel("A")
+        channel = params["channel"]
+        if channel == "luminance" or (channel == "auto" and asset_coverage.getextrema() == (255, 255)):
+            asset_coverage = asset.convert("L")
+        if asset_coverage.size != (width, height):
+            asset_coverage = asset_coverage.resize((width, height), Image.Resampling.LANCZOS)
+        coverage = np.asarray(asset_coverage)
+    else:
+        shape_width = max(1, round(width * params.get("width_percent", 100) / 100))
+        shape_height = max(1, round(height * params.get("height_percent", 100) / 100))
+        radius = params["radius"] if shape == "rounded_rectangle" else 0
+        if shape == "rounded_rectangle" and (shape_width, shape_height) == (width, height):
+            return border_radius(image, {"radius": radius, "fill_color": None})
+        left, top = (width - shape_width) // 2, (height - shape_height) // 2
+        bounds = (left, top, left + shape_width, top + shape_height)
+        radius = min(radius, shape_width // 2, shape_height // 2)
+        coverage = _shape_coverage((width, height), shape, bounds, radius)
+    result = _with_alpha(image)
+    alpha = result[:, :, 3]
+    scaled = alpha * (coverage.astype(np.float32) / 255)
+    alpha[:] = np.rint(scaled) if np.issubdtype(alpha.dtype, np.integer) else scaled
+    return result
+
+
 OPERATION_FUNCTIONS: dict[str, Callable[..., np.ndarray]] = {
     "crop": crop,
     "flip": flip,
     "rotate": rotate,
     "border": border,
     "border_radius": border_radius,
+    "fill_white_corners": fill_white_corners,
     "resize": resize,
 }
 
@@ -518,12 +764,20 @@ class ImagePipeline:
             return self.config.output_dir / f"{source.stem}{self.config.output_format}"
         return self.config.output_dir / source.name
 
-    def process_file(self, source: Path) -> None:
+    def render_file(self, source: Path) -> np.ndarray:
         image = _read_image(source)
         for params in self.config.operations:
             kind = params["type"]
-            image = overlay(image, params, self.overlays) if kind == "overlay" else OPERATION_FUNCTIONS[kind](image, params)
-        _write_image(self.output_path_for(source), image)
+            if kind == "overlay":
+                image = overlay(image, params, self.overlays)
+            elif kind == "mask":
+                image = mask(image, params, self.overlays)
+            else:
+                image = OPERATION_FUNCTIONS[kind](image, params)
+        return image
+
+    def process_file(self, source: Path) -> None:
+        _write_image(self.output_path_for(source), self.render_file(source))
 
 
 _WORKER_PIPELINE: ImagePipeline | None = None

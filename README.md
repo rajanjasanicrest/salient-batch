@@ -21,13 +21,13 @@ Alternatively, edit `CONFIG_FILE` in `run_batch.py`, then run:
 
 ## Local demo UI
 
-The demo reads from the project's `input` folder, writes to `output`, and exposes every operation through a modal form. It includes three clickable configurations—**Soft PNG**, **Web Ready**, and **Navy Frame**—that replace the current format and operation sequence before running. Their dark blue, dark red, and navy borders make the results easy to distinguish. Every preset demonstrates all seven operations and adds `demo/assets/login_logo.png` at the bottom right. Its **Clear** button deletes image files directly inside `output` after confirmation, while leaving non-image files untouched. Gallery previews use cached thumbnails so full-resolution source and output files are not downloaded just to render the UI. Start it with:
+The demo reads from the project's `input` folder, writes to `output`, and exposes every operation through a modal form. It includes three clickable configurations—**Soft PNG**, **Web Ready**, and **Navy Frame**—that replace the current format and operation sequence before running. Their dark blue, dark red, and navy borders make the results easy to distinguish. Every preset uses seven operations and adds `demo/assets/login_logo.png` at the bottom right. Its **Clear** button deletes image files directly inside `output` after confirmation, while leaving non-image files untouched. Gallery previews use cached thumbnails so full-resolution source and output files are not downloaded just to render the UI. Start it with:
 
 ```powershell
 .\venv\Scripts\python.exe demo_server.py
 ```
 
-Then open `http://127.0.0.1:8000`. The UI uses the real OpenCV/Pillow processing pipeline; it does not upload images anywhere.
+Then open `http://127.0.0.1:8080`. The UI uses the real OpenCV/Pillow processing pipeline; images stay on your computer.
 
 Relative `input_dir`, `output_dir`, and local overlay paths are resolved relative to the JSON file. Only files directly inside `input_dir` are processed; subfolders are not traversed. The CLI exits with code `0` on full success, `1` when individual images fail, and `2` for a config or batch setup error.
 
@@ -62,8 +62,18 @@ Operations execute strictly from top to bottom. Remove operations you do not nee
 - `rotate` takes a non-negative `angle` and a direction of `cw` or `ccw`. For the space around the rotated image, set `fill_color` to `null` for transparency or an `[r, g, b]` list for a solid color. The default is white.
 - `border` adds `width` and `height` total pixels. Set `color` to `null` for transparent padding or an `[r, g, b]` list for a solid color. Center alignment puts the smaller half on the left/top when an odd number is split.
 - `border_radius` rounds all four corners by `radius` pixels. Set `fill_color` to `null` (the default) for transparent corners or an `[r, g, b]` list for a solid color. Place it after `border` to round the completed bordered canvas.
+- `fill_white_corners` automatically detects bounded white patches on tightly cropped cards, reconstructs the nearby card colors across each patch, and blends the repair into the card edge to reduce visible seams. Use `{"type":"fill_white_corners"}`. The search area scales with each image and the white cutoff is estimated from each corner tip. Existing JSON configs can still supply `search` or `white_threshold` as overrides.
 - `resize`: fits within the box while preserving aspect ratio. It may enlarge smaller images and does not pad.
+- `mask` keeps the area inside a cutout and makes the outside transparent. The demo opens the drawing editor directly.
 - `overlay`: accepts an HTTP(S) URL or local path. `width` and `height` are optional but must be supplied together. `position` can be `coordinates` (the default), `top_left`, `top_right`, `bottom_left`, `bottom_right`, or `center`. For anchored positions, `x` and `y` are inward margins; for exact coordinates they retain their original top-left coordinate meaning. `opacity` defaults to `1`.
+
+In the demo, use **Browse image** to select an overlay.
+
+The demo selects PNG when the current format would discard transparency. Existing centered-shape and image-based JSON recipes remain compatible.
+
+Click **Mask** and draw directly on the example image. **Rectangle** is selected by default. You can also draw a **Circle**, **Ellipse**, or **Rounded rectangle**, or use **Freehand** to trace an outline. Drag inside a drawn shape to move it, or use **Move** for any outline. Select **Preview cutout** to check the result and **Apply mask** to add it to the batch.
+
+The example reflects the operations before the Mask step. A freehand mask saves normalized points in JSON, for example `{"type":"mask","shape":"drawn","points":[[0.1,0.2],[0.9,0.2],[0.5,0.85]]}`. A shape saves its normalized bounds, for example `{"type":"mask","shape":"drawn","drawing_shape":"circle","bounds":[0.1,0.2,0.9,0.8]}`. Circles stay round when image proportions change. A rounded rectangle's `roundness` is a percentage from 0 to 50 of its shorter side.
 
 For a future process pool, `ImagePipeline.process_file()` is already the isolated per-file unit; `run_batch()` is the simple sequential scheduler.
 

@@ -14,12 +14,16 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
+from uuid import uuid4
 
+import cv2
+import numpy as np
 from PIL import Image, ImageOps
 
 from image_batch import (
     BatchConfig,
     IMAGE_EXTENSIONS,
+    ImagePipeline,
     OUTPUT_FORMATS,
     _validate_operation,
     run_batch,
@@ -171,6 +175,12 @@ class DemoHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request_path = urlsplit(self.path).path
+        if request_path in {"/api/assets", "/api/masks"}:
+            self._upload_asset(".masks" if request_path == "/api/masks" else ".assets")
+            return
+        if request_path == "/api/mask-preview":
+            self._mask_preview()
+            return
         if request_path == "/api/clear-output":
             self._clear_output()
             return
@@ -181,12 +191,7 @@ class DemoHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "Another batch is already running."}, HTTPStatus.CONFLICT)
             return
         try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-            if content_length <= 0 or content_length > 1_000_000:
-                raise ValueError("Invalid request size")
-            payload = json.loads(self.rfile.read(content_length))
-            if not isinstance(payload, dict) or not isinstance(payload.get("operations"), list):
-                raise ValueError("operations must be a list")
+            payload = self._read_recipe()
 
             requested_format = payload.get("output_format")
             if requested_format in {None, ""}:
@@ -230,6 +235,89 @@ class DemoHandler(BaseHTTPRequestHandler):
         finally:
             PROCESS_LOCK.release()
 
+    def _read_recipe(self) -> dict:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if not 0 < content_length <= 1_000_000:
+            raise ValueError("Invalid request size")
+        payload = json.loads(self.rfile.read(content_length))
+        if not isinstance(payload, dict) or not isinstance(payload.get("operations"), list):
+            raise ValueError("operations must be a list")
+        return payload
+
+    def _mask_preview(self) -> None:
+        if self.headers.get_content_type() != "application/json":
+            self.send_json({"error": "Send the example and recipe as JSON"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            return
+        try:
+            payload = self._read_recipe()
+            filename = payload.get("filename")
+            if not isinstance(filename, str) or not filename or any(char in filename for char in ("/", "\\")):
+                raise ValueError("Select an example from the input folder")
+            source = (INPUT_DIR / filename).resolve()
+            if source.parent != INPUT_DIR.resolve() or not source.is_file() or source.suffix.lower() not in IMAGE_EXTENSIONS:
+                raise ValueError("The selected example is unavailable")
+            operations = [_validate_operation(op, index) for index, op in enumerate(payload["operations"])]
+            config = BatchConfig(INPUT_DIR, OUTPUT_DIR, None, operations, ROOT)
+            image = ImagePipeline(config).render_file(source)
+            height, width = image.shape[:2]
+            if max(height, width) > 960:
+                scale = 960 / max(height, width)
+                size = (max(1, round(width * scale)), max(1, round(height * scale)))
+                image = cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+            if np.issubdtype(image.dtype, np.floating):
+                image = np.rint(np.clip(image, 0, 1) * 255).astype(np.uint8)
+            success, encoded = cv2.imencode(".png", image, [cv2.IMWRITE_PNG_COMPRESSION, 1])
+            if not success:
+                raise ValueError("Could not render the example")
+        except (OSError, ValueError, TypeError, cv2.error) as error:
+            self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return
+
+        body = encoded.tobytes()
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except ConnectionError:
+            # The editor cancels the old request when switching examples.
+            return
+
+    def _upload_asset(self, folder: str) -> None:
+        if self.headers.get_content_type() != "application/octet-stream":
+            self.send_json({"error": "Send the raw image file"}, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+            return
+        try:
+            size = int(self.headers.get("Content-Length", 0))
+            if not 0 < size <= 20_000_000:
+                raise ValueError("Choose an image up to 20 MB")
+            payload = self.rfile.read(size)
+            with Image.open(io.BytesIO(payload)) as opened:
+                extension = {
+                    "PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp",
+                    "TIFF": ".tiff", "BMP": ".bmp", "GIF": ".gif",
+                }.get(opened.format)
+                if extension is None:
+                    raise ValueError("Choose a PNG, JPEG, WebP, TIFF, BMP, or GIF image")
+                opened.verify()
+        except ValueError as error:
+            self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+            return
+        except (OSError, SyntaxError, Image.DecompressionBombError):
+            self.send_json({"error": "Could not read the image file"}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            path = INPUT_DIR / folder / f"{uuid4().hex}{extension}"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        except OSError:
+            LOGGER.exception("Could not save the uploaded image")
+            self.send_json({"error": "Could not save the image file"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self.send_json({"path": path.relative_to(ROOT).as_posix()}, HTTPStatus.CREATED)
+
     def _clear_output(self) -> None:
         if not PROCESS_LOCK.acquire(blocking=False):
             self.send_json({"error": "Another batch is already running."}, HTTPStatus.CONFLICT)
@@ -256,7 +344,7 @@ class DemoHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     INPUT_DIR.mkdir(exist_ok=True)

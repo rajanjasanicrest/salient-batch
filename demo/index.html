@@ -67,7 +67,7 @@
     .preset.active { border-color: var(--blue); background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue); }
     .preset-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--blue-dark); font-size: 11px; font-weight: 800; }
     .preset-copy { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.25; }
-    label { color: var(--ink); font-size: 12px; font-weight: 700; }
+    label, .image-picker-label { color: var(--ink); font-size: 12px; font-weight: 700; }
     select, input[type="number"], input[type="text"], input[type="url"] { width: 100%; border: 1px solid #cfe0f3; border-radius: 9px; padding: 9px 10px; color: var(--ink); background: var(--white); outline: none; }
     select:focus, input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
     .add-label { display: flex; justify-content: space-between; align-items: center; margin: 3px 0 8px; }
@@ -94,7 +94,32 @@
     .close { width: 31px; height: 31px; border: 0; border-radius: 9px; color: var(--blue); background: var(--blue-soft); font-size: 18px; }
     .form { padding: 20px 21px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 15px; }
     .field { display: grid; gap: 6px; }
+    .field[hidden] { display: none; }
     .field.full { grid-column: 1 / -1; }
+    .drawn-mask-modal .modal { width: min(760px, 100%); max-height: calc(100dvh - 24px); }
+    .drawn-mask-modal .modal-actions { position: sticky; bottom: 0; background: var(--white); border-top: 1px solid var(--line); }
+    .drawn-mask-modal .primary:disabled { opacity: .48; cursor: default; }
+    .mask-drawing { gap: 10px; }
+    .mask-drawing p { margin: 0; color: var(--muted); font-size: 12px; }
+    .mask-drawing [role="status"]:empty { display: none; }
+    .mask-stage { display: grid; place-items: center; min-height: 84px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--blue-pale); }
+    .mask-canvas { max-width: 100%; max-height: min(48dvh, 470px); width: auto; height: auto; background: repeating-conic-gradient(#e2eaf5 0% 25%, #fff 0% 50%) 0 0 / 16px 16px; cursor: crosshair; touch-action: none; }
+    .mask-canvas[data-move-ready] { cursor: grab; }
+    .mask-canvas[data-moving] { cursor: grabbing; }
+    .mask-canvas[data-preview] { cursor: default; }
+    .mask-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+    .mask-tools button { padding: 7px 10px; font-size: 12px; }
+    .mask-tools button:disabled { opacity: .45; cursor: default; }
+    .mask-tools [aria-pressed="true"] { border-color: var(--blue); background: var(--blue-soft); }
+    .mask-roundness { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .mask-roundness[hidden] { display: none; }
+    .mask-roundness output { min-width: 34px; color: var(--blue-dark); font-size: 12px; }
+    .image-picker { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--blue-pale); }
+    .image-picker .browse-image { flex: 0 0 auto; border-color: #b9d4f4; font-size: 12px; }
+    .browse-image:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-soft); }
+    .browse-image:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .browse-image:disabled { opacity: .55; cursor: default; }
+    .image-filename { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
     .color-wrap { display: grid; grid-template-columns: 46px 1fr; align-items: center; gap: 9px; }
     .color-wrap[hidden] { display: none; }
     input[type="color"] { width: 46px; height: 38px; padding: 3px; border: 1px solid #cfe0f3; border-radius: 9px; background: white; }
@@ -161,14 +186,23 @@
   <div class="loader" id="loader" hidden><div class="loader-card"><div class="spinner"></div><div class="loader-title">Processing your batch</div><div class="loader-copy">Applying each operation in sequence…</div></div></div>
   <div class="toast" id="toast"></div>
   <script>
+    const maskDrawingTools = [
+      ['rectangle', 'Rectangle'],
+      ['circle', 'Circle'],
+      ['ellipse', 'Ellipse'],
+      ['rounded_rectangle', 'Rounded rectangle'],
+      ['freehand', 'Freehand']
+    ];
     const definitions = {
       crop: { label: 'Crop', defaults: { left: 0, top: 0, right: 0, bottom: 0 }, fields: [num('left','Left (px)'),num('top','Top (px)'),num('right','Right (px)'),num('bottom','Bottom (px)')] },
       flip: { label: 'Flip', defaults: { horizontal: true, vertical: false }, fields: [check('horizontal','Flip horizontally'),check('vertical','Flip vertically')] },
       rotate: { label: 'Rotate', defaults: { angle: 90, direction: 'cw', fill_color: [255,255,255] }, fields: [num('angle','Angle (degrees)',0,0.1),selectField('direction','Direction',[['cw','Clockwise'],['ccw','Counter-clockwise']]),fillField('fill_color','Corner fill','Angles between multiples of 90° create space around the image.')] },
       border: { label: 'Border', defaults: { width: 40, height: 40, color: [255,255,255], h_align: 'center', v_align: 'center' }, fields: [num('width','Added width (px)'),num('height','Added height (px)'),fillField('color','Border fill'),selectField('h_align','Horizontal alignment',[['left','Left'],['center','Center'],['right','Right']]),selectField('v_align','Vertical alignment',[['top','Top'],['center','Center'],['bottom','Bottom']])] },
       border_radius: { label: 'Radius', defaults: { radius: 24, fill_color: null }, fields: [num('radius','Corner radius (px)'),fillField('fill_color','Corner fill')] },
+      fill_white_corners: { label: 'Fill white corners', fields: [] },
       resize: { label: 'Resize', defaults: { width: 1200, height: 800 }, fields: [num('width','Max width (px)',1),num('height','Max height (px)',1)] },
-      overlay: { label: 'Overlay', defaults: { image_url: '', position: 'bottom_right', x: 20, y: 20, opacity: 1 }, fields: [textField('image_url','Image URL or local path','text',true),selectField('position','Placement',[['coordinates','Exact coordinates'],['top_left','Top left'],['top_right','Top right'],['bottom_left','Bottom left'],['bottom_right','Bottom right'],['center','Center']]),num('x','X coordinate / margin (px)',0),num('y','Y coordinate / margin (px)',0),num('width','Width (optional)',1,1,false),num('height','Height (optional)',1,1,false),rangeField('opacity','Opacity')] }
+      mask: { label: 'Mask', fields: [] },
+      overlay: { label: 'Overlay', defaults: { image_url: '', position: 'bottom_right', x: 20, y: 20, opacity: 1 }, fields: [imageField('Overlay image'),selectField('position','Placement',[['coordinates','Exact coordinates'],['top_left','Top left'],['top_right','Top right'],['bottom_left','Bottom left'],['bottom_right','Bottom right'],['center','Center']]),num('x','X coordinate / margin (px)',0),num('y','Y coordinate / margin (px)',0),num('width','Width (optional)',1,1,false),num('height','Height (optional)',1,1,false),rangeField('opacity','Opacity')] }
     };
     const presets = [
       { id: 'soft-png', name: 'Soft PNG', copy: 'Dark blue · subtle finish', output_format: 'png', operations: [{type:'crop',left:4,top:4,right:4,bottom:4},{type:'flip',horizontal:false,vertical:false},{type:'rotate',angle:0,direction:'cw',fill_color:[255,255,255]},{type:'border',width:36,height:36,color:[23,78,166],h_align:'center',v_align:'center'},{type:'resize',width:1600,height:1600},{type:'border_radius',radius:50},{type:'overlay',image_url:'demo/assets/login_logo.png',position:'bottom_right',x:20,y:20,width:180,height:72,opacity:.9}] },
@@ -179,11 +213,12 @@
     function check(key,label){ return {key,label,type:'checkbox'}; }
     function fillField(key,label,hint){ return {key,label,type:'fill',hint}; }
     function selectField(key,label,options){ return {key,label,type:'select',options}; }
-    function textField(key,label,type='text',required=false){ return {key,label,type,required,full:true}; }
+    function imageField(label){ return {key:'image_url',label,type:'image'}; }
     function rangeField(key,label){ return {key,label,type:'range',min:0,max:1,step:.05,full:true}; }
-    let operations = [], editingIndex = null, activePreset = null;
+    let operations = [], inputImages = [], editingIndex = null, activePreset = null, maskDrawing = null;
     const $ = id => document.getElementById(id);
     const addGrid = $('addGrid'), operationsEl = $('operations'), modal = $('modalBackdrop'), fieldsEl = $('formFields');
+    const operationSubmit = $('operationForm').querySelector('button[type=submit]');
 
     function renderPresets(){ $('presetGrid').innerHTML=presets.map(preset=>`<button class="preset${preset.id===activePreset?' active':''}" data-preset="${preset.id}" aria-pressed="${preset.id===activePreset}"><span class="preset-name">${preset.name}</span><span class="preset-copy">${preset.copy}</span></button>`).join(''); $('presetState').textContent=activePreset?presets.find(p=>p.id===activePreset).name:'Custom'; }
     function markCustom(){ activePreset=null; renderPresets(); }
@@ -191,25 +226,84 @@
     function matchingPreset(){ const format=$('outputFormat').value; const serialized=JSON.stringify(operations); return presets.find(preset=>preset.output_format===format&&JSON.stringify(preset.operations)===serialized)?.id||null; }
     $('presetGrid').addEventListener('click',event=>{ const button=event.target.closest('[data-preset]'); if(button)applyPreset(button.dataset.preset); });
     $('outputFormat').addEventListener('change',markCustom);
-    Object.entries(definitions).forEach(([type,def]) => { const button=document.createElement('button'); button.className='op-add'; button.textContent=`+ ${def.label}`; button.addEventListener('click',()=>openModal(type)); addGrid.append(button); });
+    Object.entries(definitions).forEach(([type, def]) => {
+      const button = document.createElement('button');
+      button.className = 'op-add';
+      button.textContent = `+ ${def.label}`;
+      button.addEventListener('click', () => {
+        if (type === 'mask' || def.fields.length) {
+          openModal(type);
+          return;
+        }
+        operations.push({type});
+        markCustom();
+        renderOperations();
+      });
+      addGrid.append(button);
+    });
     function formatBytes(bytes){ if(bytes<1024)return `${bytes} B`; if(bytes<1048576)return `${(bytes/1024).toFixed(1)} KB`; return `${(bytes/1048576).toFixed(1)} MB`; }
     function renderGallery(target,items,kind){ const el=$(target), count=$(kind+'Count'); count.textContent=items.length; if(kind==='output')$('clearButton').disabled=items.length===0; if(!items.length){ el.innerHTML=`<div class="empty"><div><div class="empty-orb">${kind==='input'?'＋':'✓'}</div><strong>${kind==='input'?'No input images':'No output yet'}</strong><div>${kind==='input'?'Add images to the input folder':'Run the pipeline to create results'}</div></div></div>`; return; } el.innerHTML=items.map(item=>`<article class="image-card"><a class="thumb" href="${item.file_url}" target="_blank" title="Open full image"><img src="${item.url}" alt="${escapeHtml(item.name)}" loading="lazy"></a><div class="file-meta"><div class="filename" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div><div class="filesize">${formatBytes(item.size)}</div></div></article>`).join(''); }
     function escapeHtml(value){ return value.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
     function fillValue(op, key) {
       return Object.hasOwn(op, key) ? op[key] : definitions[op.type].defaults[key];
     }
+    function imageFilename(path, uploadedName) {
+      if (uploadedName) return uploadedName;
+      path = String(path ?? '');
+      if (/^https?:\/\//i.test(path)) {
+        try {
+          const url = new URL(path);
+          return decodeURIComponent(url.pathname.split('/').pop()) || url.hostname;
+        } catch { return 'Saved image'; }
+      }
+      return path.split(/[\\/]/).pop();
+    }
     function summary(op) {
+      if (op.type === 'fill_white_corners') return 'Samples a nearby color for each white corner';
+      if (op.type === 'mask') {
+        if (op.shape === 'drawn') {
+          const shape = maskDrawingTools.find(([value]) => value === op.drawing_shape);
+          return shape ? `Drawn ${shape[1].toLowerCase()}` : 'Drawn cutout';
+        }
+        const shape = maskDrawingTools.find(([value]) => value === op.shape);
+        if (shape) {
+          const size = `${op.width_percent ?? 100}% × ${op.height_percent ?? 100}%`;
+          const radius = op.shape === 'rounded_rectangle' ? ` · ${op.radius} px radius` : '';
+          return `${shape[1]} · ${size}${radius}`;
+        }
+      }
       const field = definitions[op.type].fields.find(field => field.type === 'fill');
       const details = Object.entries(op)
-        .filter(([key]) => key !== 'type' && key !== field?.key)
+        .filter(([key]) => !['type', 'image_url', 'image_name', field?.key].includes(key))
         .map(([key, value]) => `${key.replaceAll('_', ' ')}: ${Array.isArray(value) ? value.join(',') : value}`);
+      if (op.image_url) details.unshift(`image: ${imageFilename(op.image_url, op.image_name)}`);
       if (field) {
         const fill = fillValue(op, field.key);
         details.push(`${field.label.toLowerCase()}: ${fill === null ? 'Transparent' : rgbToHex(fill).toUpperCase()}`);
       }
       return details.join(' · ');
     }
-    function renderOperations(){ $('opCount').textContent=operations.length; if(!operations.length){ operationsEl.innerHTML='<div class="empty" style="min-height:90px"><div>Add operations above</div></div>'; return; } operationsEl.innerHTML=operations.map((op,i)=>`<div class="op-card"><div class="op-index">${i+1}</div><div><div class="op-title">${definitions[op.type].label}</div><div class="op-summary">${escapeHtml(summary(op))}</div></div><div class="op-actions"><button class="icon-btn" data-action="edit" data-i="${i}" title="Edit">✎</button><button class="icon-btn" data-action="delete" data-i="${i}" title="Delete">×</button><button class="icon-btn" data-action="up" data-i="${i}" title="Move up">↑</button><button class="icon-btn" data-action="down" data-i="${i}" title="Move down">↓</button></div></div>`).join(''); }
+    function renderOperations() {
+      $('opCount').textContent = operations.length;
+      if (!operations.length) {
+        operationsEl.innerHTML = '<div class="empty" style="min-height:90px"><div>Add operations above</div></div>';
+        return;
+      }
+      operationsEl.innerHTML = operations.map((op, i) => {
+        const def = definitions[op.type];
+        const edit = op.type === 'mask' || def.fields.length
+          ? `<button class="icon-btn" data-action="edit" data-i="${i}" title="Edit">✎</button>` : '';
+        return `<div class="op-card">
+          <div class="op-index">${i + 1}</div>
+          <div><div class="op-title">${def.label}</div><div class="op-summary">${escapeHtml(summary(op))}</div></div>
+          <div class="op-actions">${edit}
+            <button class="icon-btn" data-action="delete" data-i="${i}" title="Delete">×</button>
+            <button class="icon-btn" data-action="up" data-i="${i}" title="Move up">↑</button>
+            <button class="icon-btn" data-action="down" data-i="${i}" title="Move down">↓</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
     operationsEl.addEventListener('click',event=>{ const button=event.target.closest('button'); if(!button)return; const i=Number(button.dataset.i), action=button.dataset.action; if(action==='edit'){openModal(operations[i].type,i);return;} if(action==='delete')operations.splice(i,1); if(action==='up'&&i>0)[operations[i-1],operations[i]]=[operations[i],operations[i-1]]; if(action==='down'&&i<operations.length-1)[operations[i+1],operations[i]]=[operations[i],operations[i+1]]; markCustom(); renderOperations(); });
     function rgbToHex(rgb){ return '#'+rgb.map(v=>Number(v).toString(16).padStart(2,'0')).join(''); }
     function hexToRgb(hex){ return [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)); }
@@ -262,14 +356,503 @@
       return group;
     }
 
+    async function uploadImage(file) {
+      const options = {
+        method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file
+      };
+      let response = await fetch('/api/assets', options);
+      if (response.status === 404) response = await fetch('/api/masks', options);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Image upload is unavailable on this server (HTTP ${response.status}).`);
+      }
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Image upload failed');
+      if (typeof result.path !== 'string' || !result.path) throw new Error('The server did not return an image path.');
+      return result.path;
+    }
+
+    function renderImagePicker(field, values) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'field full';
+      wrapper.setAttribute('role', 'group');
+      wrapper.setAttribute('aria-labelledby', 'image-picker-label');
+      wrapper.innerHTML = `
+        <span class="image-picker-label" id="image-picker-label">${field.label}</span>
+        <div class="image-picker">
+          <button type="button" class="secondary browse-image" id="browse-image" aria-describedby="image-filename">Browse image…</button>
+          <span class="image-filename" id="image-filename" role="status"></span>
+          <input type="file" accept=".png,.jpg,.jpeg,.jfif,.webp,.tif,.tiff,.bmp,.gif" hidden>
+          <input type="hidden" id="field-${field.key}">
+        </div>`;
+      const button = wrapper.querySelector('button');
+      const status = wrapper.querySelector('[role=status]');
+      const upload = wrapper.querySelector('input[type=file]');
+      const path = wrapper.querySelector('input[type=hidden]');
+      path.value = values[field.key] ?? '';
+      path.dataset.filename = values.image_name ?? '';
+
+      function showSelection() {
+        const filename = imageFilename(path.value, path.dataset.filename);
+        status.textContent = filename || 'No image selected';
+        status.title = filename;
+      }
+
+      showSelection();
+      button.addEventListener('click', () => upload.click());
+      upload.addEventListener('change', async () => {
+        const file = upload.files[0];
+        if (!file) return;
+        operationSubmit.disabled = true;
+        button.disabled = true;
+        status.textContent = 'Uploading image…';
+        try {
+          path.value = await uploadImage(file);
+          path.dataset.filename = file.name;
+        } catch (error) {
+          if (upload.isConnected && !modal.hidden) showToast(error.message);
+        } finally {
+          upload.value = '';
+          button.disabled = false;
+          showSelection();
+          if (upload.isConnected) operationSubmit.disabled = false;
+        }
+      });
+      return wrapper;
+    }
+
+    function renderMaskDrawing(values) {
+      const field = document.createElement('div');
+      field.className = 'field full mask-drawing';
+      field.innerHTML = `
+        <label for="mask-reference">Example image</label>
+        <select id="mask-reference"></select>
+        <div class="mask-tools" role="group" aria-label="Drawing tool">
+          ${maskDrawingTools.map(([value, label]) => `<button type="button" class="secondary" data-drawing-tool="${value}" aria-pressed="false">${label}</button>`).join('')}
+        </div>
+        <div class="mask-roundness" hidden>
+          <label for="mask-roundness">Corner roundness</label>
+          <input id="mask-roundness" type="range" min="0" max="50" step="1" value="20">
+          <output for="mask-roundness"></output>
+        </div>
+        <p id="mask-drawing-hint"></p>
+        <div class="mask-stage">
+          <canvas class="mask-canvas" aria-label="Draw your cutout" aria-describedby="mask-drawing-hint" hidden></canvas>
+        </div>
+        <div class="mask-tools" role="group" aria-label="Edit cutout">
+          <button type="button" class="secondary" data-drawing-tool="move" aria-pressed="false" disabled>Move</button>
+          <button type="button" class="secondary" data-mask-tool="undo">Undo</button>
+          <button type="button" class="secondary" data-mask-tool="clear">Clear</button>
+          <button type="button" class="secondary" data-mask-tool="preview">Preview cutout</button>
+        </div>
+        <p role="status"></p>`;
+      const reference = field.querySelector('select');
+      const canvas = field.querySelector('canvas');
+      const ctx = canvas.getContext('2d');
+      const status = field.querySelector('[role=status]');
+      const hint = field.querySelector('#mask-drawing-hint');
+      const tools = field.querySelectorAll('[data-drawing-tool]');
+      const roundness = field.querySelector('#mask-roundness');
+      const roundnessValue = field.querySelector('output');
+      const previewButton = field.querySelector('[data-mask-tool="preview"]');
+      const undoButton = field.querySelector('[data-mask-tool="undo"]');
+      const clearButton = field.querySelector('[data-mask-tool="clear"]');
+      const history = [];
+      const preceding = operations.slice(0, editingIndex ?? operations.length);
+      let drawing = values.drawing_shape && values.bounds
+        ? {drawing_shape: values.drawing_shape, bounds: values.bounds.slice()}
+        : {points: (values.points || []).slice()};
+      if (drawing.drawing_shape === 'rounded_rectangle') drawing.roundness = values.roundness ?? 20;
+      let tool = drawing.drawing_shape || (drawing.points?.length ? 'freehand' : 'rectangle');
+      let picture = null;
+      let request = null;
+      let preview = false;
+      let pointer = null;
+      let origin = null;
+      let draft = null;
+      let moveBounds = null;
+      let previousRoundness;
+      let frame = 0;
+
+      for (const item of inputImages) reference.add(new Option(item.name, item.name));
+      if (inputImages.some(item => item.name === values.reference_name)) reference.value = values.reference_name;
+      if (!reference.options.length) {
+        reference.add(new Option('No input images', ''));
+        reference.disabled = true;
+      }
+
+      function enclosesArea(outline) {
+        if (outline.bounds) {
+          const [left, top, right, bottom] = outline.bounds;
+          return right > left && bottom > top;
+        }
+        const {points} = outline;
+        if (points.length < 3) return false;
+        const doubledArea = points.reduce((total, [x, y], index) => {
+          const [nextX, nextY] = points[(index + 1) % points.length];
+          return total + x * nextY - y * nextX;
+        }, 0);
+        return Math.abs(doubledArea) > 1e-6;
+      }
+
+      function trace(outline, close) {
+        if (outline.bounds) {
+          const [left, top, right, bottom] = outline.bounds;
+          const x = left * canvas.width, y = top * canvas.height;
+          const width = (right - left) * canvas.width, height = (bottom - top) * canvas.height;
+          const shorterSide = Math.min(width, height);
+          if (outline.drawing_shape === 'rectangle') ctx.rect(x, y, width, height);
+          else if (outline.drawing_shape === 'rounded_rectangle') {
+            ctx.roundRect(x, y, width, height, shorterSide * outline.roundness / 100);
+          } else {
+            const circle = outline.drawing_shape === 'circle';
+            const rx = (circle ? shorterSide : width) / 2;
+            const ry = (circle ? shorterSide : height) / 2;
+            ctx.moveTo(x + width / 2 + rx, y + height / 2);
+            ctx.ellipse(x + width / 2, y + height / 2, rx, ry, 0, 0, 2 * Math.PI);
+            ctx.closePath();
+          }
+          return;
+        }
+        outline.points.forEach(([x, y], index) => {
+          if (index === 0) ctx.moveTo(x * canvas.width, y * canvas.height);
+          else ctx.lineTo(x * canvas.width, y * canvas.height);
+        });
+        if (close) ctx.closePath();
+      }
+
+      function canGrab([x, y]) {
+        if (preview || (tool !== 'move' && tool !== drawing.drawing_shape) || !enclosesArea(drawing)) return false;
+        ctx.beginPath();
+        trace(drawing, true);
+        return ctx.isPointInPath(x * canvas.width, y * canvas.height, 'evenodd');
+      }
+
+      function outlineBounds() {
+        if (drawing.bounds) return drawing.bounds;
+        const xs = drawing.points.map(([x]) => x);
+        const ys = drawing.points.map(([, y]) => y);
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      }
+
+      function render() {
+        frame = 0;
+        const outline = draft || drawing;
+        const closed = enclosesArea(outline) && (pointer === null || Boolean(draft));
+        const hasDrawing = Boolean(drawing.bounds || drawing.points?.length);
+        const canMove = enclosesArea(drawing);
+        if (field.isConnected && !modal.hidden) operationSubmit.disabled = !canMove || pointer !== null;
+        previewButton.disabled = !closed || !picture || pointer !== null;
+        previewButton.textContent = preview ? 'Edit outline' : 'Preview cutout';
+        undoButton.disabled = preview || pointer !== null || (!history.length && !hasDrawing);
+        clearButton.disabled = preview || pointer !== null || !hasDrawing;
+        for (const button of tools) {
+          button.setAttribute('aria-pressed', button.dataset.drawingTool === tool);
+          button.disabled = preview || pointer !== null || (button.dataset.drawingTool === 'move' && !canMove);
+        }
+        roundness.closest('.mask-roundness').hidden = tool !== 'rounded_rectangle';
+        roundness.disabled = preview || pointer !== null;
+        roundnessValue.textContent = `${roundness.value}%`;
+        if (preview) hint.textContent = 'The checkerboard shows the area that will be transparent.';
+        else if (tool === 'move') hint.textContent = 'Drag inside the outline to move it.';
+        else if (tool === 'freehand') hint.textContent = canMove
+          ? 'Keep tracing or choose Move to reposition the outline.'
+          : 'Click to place points or drag to trace the area to keep.';
+        else hint.textContent = tool === drawing.drawing_shape
+          ? 'Drag inside the outline to move it, or drag outside to draw a new shape.'
+          : 'Drag over the image to draw the cutout.';
+        canvas.toggleAttribute('data-moving', Boolean(moveBounds));
+        canvas.toggleAttribute('data-preview', preview);
+        if (!picture) return;
+        const {width, height} = canvas;
+        ctx.clearRect(0, 0, width, height);
+        if (preview && closed) {
+          ctx.save();
+          ctx.beginPath();
+          trace(outline, true);
+          ctx.clip('evenodd');
+          ctx.drawImage(picture, 0, 0, width, height);
+          ctx.restore();
+          return;
+        }
+        ctx.drawImage(picture, 0, 0, width, height);
+        if (!closed && !outline.points?.length) return;
+        if (closed) {
+          ctx.beginPath();
+          ctx.rect(0, 0, width, height);
+          trace(outline, true);
+          ctx.fillStyle = 'rgba(8, 26, 50, .45)';
+          ctx.fill('evenodd');
+        }
+        ctx.beginPath();
+        trace(outline, closed);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        const scale = width / (canvas.clientWidth || width);
+        ctx.lineWidth = 4 * scale;
+        ctx.strokeStyle = 'white';
+        ctx.stroke();
+        ctx.lineWidth = 2 * scale;
+        ctx.strokeStyle = '#1769e0';
+        ctx.stroke();
+        if (outline.points && outline.points.length <= 24) {
+          for (const [x, y] of outline.points) {
+            ctx.beginPath();
+            ctx.arc(x * width, y * height, 2.5 * scale, 0, Math.PI * 2);
+            ctx.fillStyle = '#1769e0';
+            ctx.fill();
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = scale;
+            ctx.stroke();
+          }
+        }
+      }
+
+      function redraw() {
+        if (!frame) frame = requestAnimationFrame(render);
+      }
+
+      async function loadExample() {
+        request?.abort();
+        picture = null;
+        canvas.hidden = true;
+        redraw();
+        if (!reference.value) {
+          status.textContent = 'Add an example to the input folder and reload the demo.';
+          return;
+        }
+        const controller = new AbortController();
+        request = controller;
+        status.textContent = 'Loading example…';
+        try {
+          const response = await fetch('/api/mask-preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({filename: reference.value, operations: preceding}),
+            signal: controller.signal
+          });
+          if (!response.ok) {
+            const details = await response.json().catch(() => ({}));
+            throw new Error(details.error || 'Could not load the example image');
+          }
+          const url = URL.createObjectURL(await response.blob());
+          try {
+            const next = new Image();
+            next.src = url;
+            await next.decode();
+            if (controller.signal.aborted || !field.isConnected) return;
+            picture = next;
+            const scale = 960 / Math.max(picture.naturalWidth, picture.naturalHeight);
+            canvas.width = Math.max(1, Math.round(picture.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(picture.naturalHeight * scale));
+            canvas.hidden = false;
+            status.textContent = '';
+            redraw();
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) status.textContent = error.message;
+        }
+      }
+
+      function remember(outline = drawing) {
+        if (history.length === 30) history.shift();
+        history.push(structuredClone(outline));
+      }
+
+      function pointerPosition(event) {
+        const rect = canvas.getBoundingClientRect();
+        const normalized = value => Math.round(Math.max(0, Math.min(1, value)) * 1e6) / 1e6;
+        return [
+          normalized((event.clientX - rect.left) / rect.width),
+          normalized((event.clientY - rect.top) / rect.height)
+        ];
+      }
+
+      function updateDraft(next) {
+        const [startX, startY] = origin;
+        let [x, y] = next;
+        if (tool === 'circle') {
+          const diameter = Math.min(Math.abs(x - startX) * canvas.width, Math.abs(y - startY) * canvas.height);
+          x = startX + Math.sign(x - startX) * diameter / canvas.width;
+          y = startY + Math.sign(y - startY) * diameter / canvas.height;
+        }
+        draft = {
+          drawing_shape: tool,
+          bounds: [Math.min(startX, x), Math.min(startY, y), Math.max(startX, x), Math.max(startY, y)]
+        };
+        if (tool === 'rounded_rectangle') draft.roundness = Number(roundness.value);
+        redraw();
+      }
+
+      function moveDraft([x, y]) {
+        const [left, top, right, bottom] = moveBounds;
+        const dx = Math.max(-left, Math.min(1 - right, x - origin[0]));
+        const dy = Math.max(-top, Math.min(1 - bottom, y - origin[1]));
+        if (dx === 0 && dy === 0) draft = drawing;
+        else if (drawing.bounds) draft = {...drawing, bounds: [left + dx, top + dy, right + dx, bottom + dy]};
+        else draft = {points: drawing.points.map(([px, py]) => [px + dx, py + dy])};
+        redraw();
+      }
+
+      function addPoint(next) {
+        const {points} = drawing;
+        const last = points.at(-1);
+        if (last && Math.hypot((last[0] - next[0]) * canvas.clientWidth, (last[1] - next[1]) * canvas.clientHeight) < 2) return;
+        if (points.length >= 2048) {
+          status.textContent = 'Outline limit reached. Undo a stroke or clear the outline to keep drawing.';
+          return;
+        }
+        points.push(next);
+        redraw();
+      }
+
+      canvas.addEventListener('pointerdown', event => {
+        if (!picture || preview || pointer !== null || event.button !== 0) return;
+        const next = pointerPosition(event);
+        const moving = canGrab(next);
+        if (tool === 'move' && !moving) return;
+        pointer = event.pointerId;
+        canvas.setPointerCapture(pointer);
+        if (moving) {
+          origin = next;
+          moveBounds = outlineBounds();
+          moveDraft(next);
+        } else if (tool === 'freehand') {
+          remember();
+          if (!drawing.points) drawing = {points: []};
+          addPoint(next);
+        } else {
+          origin = next;
+          updateDraft(next);
+        }
+      });
+      canvas.addEventListener('pointermove', event => {
+        if (pointer === null && picture && !preview) {
+          canvas.toggleAttribute('data-move-ready', canGrab(pointerPosition(event)));
+        }
+        if (event.pointerId !== pointer) return;
+        const next = pointerPosition(event);
+        if (moveBounds) moveDraft(next);
+        else if (origin) updateDraft(next);
+        else addPoint(next);
+      });
+      canvas.addEventListener('pointerleave', () => canvas.removeAttribute('data-move-ready'));
+      canvas.addEventListener('pointerup', event => {
+        if (event.pointerId !== pointer) return;
+        const next = pointerPosition(event);
+        if (moveBounds) {
+          moveDraft(next);
+          if (draft !== drawing) {
+            remember();
+            drawing = draft;
+          }
+        } else if (origin) {
+          updateDraft(next);
+          const [left, top, right, bottom] = draft.bounds;
+          if ((right - left) * canvas.clientWidth >= 3 && (bottom - top) * canvas.clientHeight >= 3) {
+            remember();
+            drawing = draft;
+          }
+        } else addPoint(next);
+        pointer = null;
+        origin = null;
+        draft = null;
+        moveBounds = null;
+        canvas.toggleAttribute('data-move-ready', canGrab(next));
+        redraw();
+      });
+      canvas.addEventListener('lostpointercapture', event => {
+        if (event.pointerId !== pointer) return;
+        pointer = null;
+        origin = null;
+        draft = null;
+        moveBounds = null;
+        canvas.removeAttribute('data-move-ready');
+        redraw();
+      });
+      for (const button of tools) {
+        button.addEventListener('click', () => {
+          if (pointer !== null || preview) return;
+          tool = button.dataset.drawingTool;
+          canvas.removeAttribute('data-move-ready');
+          if (tool === 'rounded_rectangle' && drawing.drawing_shape === tool) {
+            roundness.value = drawing.roundness ?? 20;
+          }
+          redraw();
+        });
+      }
+      roundness.value = drawing.roundness ?? 20;
+      roundness.addEventListener('input', () => {
+        if (drawing.drawing_shape === 'rounded_rectangle') {
+          previousRoundness ??= drawing.roundness;
+          drawing.roundness = Number(roundness.value);
+        }
+        redraw();
+      });
+      roundness.addEventListener('change', () => {
+        if (previousRoundness !== undefined && previousRoundness !== drawing.roundness) {
+          remember({...drawing, roundness: previousRoundness});
+        }
+        previousRoundness = undefined;
+        redraw();
+      });
+      previewButton.addEventListener('click', () => {
+        if (pointer !== null) return;
+        preview = !preview;
+        redraw();
+      });
+      undoButton.addEventListener('click', () => {
+        drawing = history.pop() ?? {points: (drawing.points || []).slice(0, -1)};
+        if (tool === 'move' && !enclosesArea(drawing)) tool = drawing.points?.length ? 'freehand' : 'rectangle';
+        if (tool === 'rounded_rectangle' && drawing.drawing_shape === tool) {
+          roundness.value = drawing.roundness;
+        }
+        status.textContent = '';
+        redraw();
+      });
+      clearButton.addEventListener('click', () => {
+        remember();
+        if (tool === 'move') tool = drawing.drawing_shape || 'rectangle';
+        drawing = {points: []};
+        status.textContent = '';
+        redraw();
+      });
+      reference.addEventListener('change', loadExample);
+
+      return {
+        field,
+        loadExample,
+        cancel: () => request?.abort(),
+        outline: () => pointer === null && enclosesArea(drawing)
+          ? {...structuredClone(drawing), reference_name: reference.value} : null
+      };
+    }
+
     function openModal(type, index = null) {
       editingIndex = index;
       const def = definitions[type];
-      const values = index === null ? {type, ...def.defaults} : operations[index];
+      const values = operations[index] ?? {type, ...def.defaults};
+      const isMask = type === 'mask';
       $('modalTitle').textContent = `${index === null ? 'Add' : 'Edit'} ${def.label}`;
+      maskDrawing?.cancel();
+      maskDrawing = null;
+      modal.classList.toggle('drawn-mask-modal', isMask);
+      operationSubmit.textContent = isMask ? 'Apply mask' : 'Save operation';
+      operationSubmit.disabled = isMask;
       fieldsEl.dataset.type = type;
       fieldsEl.innerHTML = '';
+      if (isMask) {
+        maskDrawing = renderMaskDrawing(values);
+        fieldsEl.append(maskDrawing.field);
+        maskDrawing.loadExample();
+      }
       for (const field of def.fields) {
+        if (field.type === 'image') {
+          fieldsEl.append(renderImagePicker(field, values));
+          continue;
+        }
         if (field.type === 'fill') {
           fieldsEl.append(renderFill(field, fillValue(values, field.key)));
           continue;
@@ -313,24 +896,33 @@
         fieldsEl.append(wrapper);
       }
       modal.hidden = false;
-      setTimeout(() => fieldsEl.querySelector('input,select')?.focus(), 20);
+      setTimeout(() => fieldsEl.querySelector('button, select, input:not([hidden]):not([type=hidden])')?.focus(), 20);
     }
-    function closeModal(){ modal.hidden=true; editingIndex=null; }
+    function closeModal(){ maskDrawing?.cancel(); modal.hidden=true; editingIndex=null; }
     $('modalClose').onclick=$('cancelButton').onclick=closeModal;
     modal.addEventListener('click',e=>{if(e.target===modal)closeModal();});
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!modal.hidden)closeModal(); if(e.key==='Escape'&&!clearModal.hidden)closeClearModal();});
     $('operationForm').addEventListener('submit', event => {
       event.preventDefault();
+      if (operationSubmit.disabled) return;
       const type = fieldsEl.dataset.type;
       const op = {type};
       for (const field of definitions[type].fields) {
         const input = $(`field-${field.key}`);
         if (field.type === 'checkbox') {
           op[field.key] = input.checked;
+        } else if (field.type === 'image') {
+          if (!input.value) {
+            showToast(`Choose an image for ${definitions[type].label}.`);
+            $('browse-image').focus();
+            return;
+          }
+          op[field.key] = input.value;
+          if (input.dataset.filename) op.image_name = input.dataset.filename;
         } else if (field.type === 'fill') {
           op[field.key] = input.disabled ? null : hexToRgb(input.value);
         } else if (field.type === 'number' || field.type === 'range') {
-          if (input.value !== '') op[field.key] = Number(input.value);
+          if (!input.disabled && input.value !== '') op[field.key] = Number(input.value);
         } else {
           op[field.key] = input.value;
         }
@@ -339,14 +931,25 @@
         showToast('Overlay width and height must be provided together.');
         return;
       }
+      if (type === 'mask') {
+        const outline = maskDrawing?.outline();
+        if (!outline) {
+          showToast('Draw an outline that encloses an area.');
+          return;
+        }
+        Object.assign(op, {shape: 'drawn'}, outline);
+      }
       if (editingIndex === null) operations.push(op);
       else operations[editingIndex] = op;
+      if (type === 'mask' && !['png', 'webp', 'tiff'].includes($('outputFormat').value)) {
+        $('outputFormat').value = 'png';
+      }
       markCustom();
       closeModal();
       renderOperations();
     });
     function showToast(message){ const toast=$('toast'); toast.textContent=message; toast.classList.add('show'); clearTimeout(showToast.timer); showToast.timer=setTimeout(()=>toast.classList.remove('show'),3500); }
-    async function loadState(){ try{ const response=await fetch('/api/state'); const state=await response.json(); renderGallery('inputGallery',state.input,'input'); renderGallery('outputGallery',state.output,'output'); operations=Array.isArray(state.config.operations)?state.config.operations:[]; $('outputFormat').value=state.config.output_format||''; activePreset=matchingPreset(); renderPresets(); renderOperations(); }catch{ renderPresets(); showToast('Could not load the local folders.'); } }
+    async function loadState(){ try{ const response=await fetch('/api/state'); const state=await response.json(); inputImages=state.input; renderGallery('inputGallery',inputImages,'input'); renderGallery('outputGallery',state.output,'output'); operations=Array.isArray(state.config.operations)?state.config.operations:[]; $('outputFormat').value=state.config.output_format||''; activePreset=matchingPreset(); renderPresets(); renderOperations(); }catch{ renderPresets(); showToast('Could not load the local folders.'); } }
     $('runButton').addEventListener('click',async()=>{ const button=$('runButton'); button.disabled=true; $('loader').hidden=false; try{ const response=await fetch('/api/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({output_format:$('outputFormat').value||null,operations})}); const result=await response.json(); if(!response.ok)throw new Error(result.error||'Processing failed'); renderGallery('outputGallery',result.output,'output'); showToast(`${result.succeeded} image${result.succeeded===1?'':'s'} processed${result.failed?`, ${result.failed} failed`:''}.`); }catch(error){ showToast(error.message); }finally{ $('loader').hidden=true; button.disabled=false; } });
     const clearModal=$('clearModal');
     function closeClearModal(){ clearModal.hidden=true; }
