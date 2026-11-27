@@ -106,14 +106,15 @@
     .mask-canvas { max-width: 100%; max-height: min(48dvh, 470px); width: auto; height: auto; background: repeating-conic-gradient(#e2eaf5 0% 25%, #fff 0% 50%) 0 0 / 16px 16px; cursor: crosshair; touch-action: none; }
     .mask-canvas[data-move-ready] { cursor: grab; }
     .mask-canvas[data-moving] { cursor: grabbing; }
+    .mask-canvas[data-handle-cursor="ew-resize"] { cursor: ew-resize; }
+    .mask-canvas[data-handle-cursor="ns-resize"] { cursor: ns-resize; }
+    .mask-canvas[data-handle-cursor="nwse-resize"] { cursor: nwse-resize; }
+    .mask-canvas[data-handle-cursor="nesw-resize"] { cursor: nesw-resize; }
     .mask-canvas[data-preview] { cursor: default; }
     .mask-tools { display: flex; flex-wrap: wrap; gap: 8px; }
     .mask-tools button { padding: 7px 10px; font-size: 12px; }
     .mask-tools button:disabled { opacity: .45; cursor: default; }
     .mask-tools [aria-pressed="true"] { border-color: var(--blue); background: var(--blue-soft); }
-    .mask-roundness { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-    .mask-roundness[hidden] { display: none; }
-    .mask-roundness output { min-width: 34px; color: var(--blue-dark); font-size: 12px; }
     .image-picker { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--blue-pale); }
     .image-picker .browse-image { flex: 0 0 auto; border-color: #b9d4f4; font-size: 12px; }
     .browse-image:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-soft); }
@@ -430,11 +431,6 @@
         <div class="mask-tools" role="group" aria-label="Drawing tool">
           ${maskDrawingTools.map(([value, label]) => `<button type="button" class="secondary" data-drawing-tool="${value}" aria-pressed="false">${label}</button>`).join('')}
         </div>
-        <div class="mask-roundness" hidden>
-          <label for="mask-roundness">Corner roundness</label>
-          <input id="mask-roundness" type="range" min="0" max="50" step="1" value="20">
-          <output for="mask-roundness"></output>
-        </div>
         <p id="mask-drawing-hint"></p>
         <div class="mask-stage">
           <canvas class="mask-canvas" aria-label="Draw your cutout" aria-describedby="mask-drawing-hint" hidden></canvas>
@@ -452,8 +448,6 @@
       const status = field.querySelector('[role=status]');
       const hint = field.querySelector('#mask-drawing-hint');
       const tools = field.querySelectorAll('[data-drawing-tool]');
-      const roundness = field.querySelector('#mask-roundness');
-      const roundnessValue = field.querySelector('output');
       const previewButton = field.querySelector('[data-mask-tool="preview"]');
       const undoButton = field.querySelector('[data-mask-tool="undo"]');
       const clearButton = field.querySelector('[data-mask-tool="clear"]');
@@ -471,7 +465,7 @@
       let origin = null;
       let draft = null;
       let moveBounds = null;
-      let previousRoundness;
+      let activeHandle = null;
       let frame = 0;
 
       for (const item of inputImages) reference.add(new Option(item.name, item.name));
@@ -528,11 +522,89 @@
         return ctx.isPointInPath(x * canvas.width, y * canvas.height, 'evenodd');
       }
 
-      function outlineBounds() {
-        if (drawing.bounds) return drawing.bounds;
-        const xs = drawing.points.map(([x]) => x);
-        const ys = drawing.points.map(([, y]) => y);
+      function outlineBounds(outline = drawing) {
+        if (outline.bounds) {
+          if (outline.drawing_shape !== 'circle') return outline.bounds;
+          const [left, top, right, bottom] = outline.bounds;
+          const diameter = Math.min((right - left) * canvas.width, (bottom - top) * canvas.height);
+          const x = (left + right) / 2, y = (top + bottom) / 2;
+          const rx = diameter / (2 * canvas.width), ry = diameter / (2 * canvas.height);
+          return [x - rx, y - ry, x + rx, y + ry];
+        }
+        const xs = outline.points.map(([x]) => x);
+        const ys = outline.points.map(([, y]) => y);
         return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      }
+
+      const resizeHandles = [
+        [-1, -1, 'nwse-resize'], [0, -1, 'ns-resize'], [1, -1, 'nesw-resize'],
+        [-1, 0, 'ew-resize'], [1, 0, 'ew-resize'],
+        [-1, 1, 'nesw-resize'], [0, 1, 'ns-resize'], [1, 1, 'nwse-resize']
+      ];
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      const editingOutline = () => tool === (drawing.drawing_shape || 'freehand');
+
+      function handleLayout(outline, scale) {
+        const bounds = outlineBounds(outline);
+        const [left, top, right, bottom] = bounds.map((value, index) => value * (index % 2 ? canvas.height : canvas.width));
+        const width = right - left, height = bottom - top;
+        const handles = resizeHandles.map(([horizontal, vertical, cursor]) => ({
+          horizontal, vertical, cursor, kind: 'resize',
+          x: clamp(left + width * (horizontal + 1) / 2, 4 * scale, canvas.width - 4 * scale),
+          y: clamp(top + height * (vertical + 1) / 2, 4 * scale, canvas.height - 4 * scale)
+        }));
+        if (!['rectangle', 'rounded_rectangle'].includes(outline.drawing_shape)) return {handles, bounds};
+
+        const shorter = Math.min(width, height);
+        const start = Math.min(17 * scale, shorter / 4);
+        const travel = shorter / 2 - start - Math.min(8 * scale, shorter / 8);
+        const inset = start + travel * (outline.roundness ?? 0) / 50;
+        for (const [horizontal, vertical, cursor] of resizeHandles) {
+          if (!horizontal || !vertical) continue;
+          handles.push({
+            horizontal, vertical, cursor, travel, kind: 'radius',
+            x: horizontal < 0 ? left + inset : right - inset,
+            y: vertical < 0 ? top + inset : bottom - inset
+          });
+        }
+        return {handles, bounds};
+      }
+
+      function findHandle([x, y], touch = false) {
+        if (preview || !editingOutline() || !enclosesArea(drawing)) return null;
+        const scale = canvas.width / canvas.clientWidth;
+        const {handles, bounds} = handleLayout(drawing, scale);
+        let closest = null;
+        let limit = (touch ? 15 : 10) * scale;
+        for (const handle of handles) {
+          const distance = Math.hypot(x * canvas.width - handle.x, y * canvas.height - handle.y);
+          if (distance < limit) {
+            closest = handle;
+            limit = distance;
+          }
+        }
+        return closest && {...closest, bounds};
+      }
+
+      function drawHandles(outline, scale) {
+        const {handles, bounds} = handleLayout(outline, scale);
+        const [left, top, right, bottom] = bounds;
+        ctx.save();
+        ctx.setLineDash([4 * scale, 4 * scale]);
+        ctx.lineWidth = scale;
+        ctx.strokeStyle = 'rgba(255,255,255,.85)';
+        ctx.strokeRect(left * canvas.width, top * canvas.height, (right - left) * canvas.width, (bottom - top) * canvas.height);
+        ctx.setLineDash([]);
+        ctx.strokeStyle = '#1769e0';
+        ctx.fillStyle = 'white';
+        for (const handle of handles) {
+          ctx.beginPath();
+          if (handle.kind === 'radius') ctx.arc(handle.x, handle.y, 4 * scale, 0, 2 * Math.PI);
+          else ctx.rect(handle.x - 3.5 * scale, handle.y - 3.5 * scale, 7 * scale, 7 * scale);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
       }
 
       function render() {
@@ -550,16 +622,16 @@
           button.setAttribute('aria-pressed', button.dataset.drawingTool === tool);
           button.disabled = preview || pointer !== null || (button.dataset.drawingTool === 'move' && !canMove);
         }
-        roundness.closest('.mask-roundness').hidden = tool !== 'rounded_rectangle';
-        roundness.disabled = preview || pointer !== null;
-        roundnessValue.textContent = `${roundness.value}%`;
         if (preview) hint.textContent = 'The checkerboard shows the area that will be transparent.';
         else if (tool === 'move') hint.textContent = 'Drag inside the outline to move it.';
+        else if (canMove && editingOutline() && ['rectangle', 'rounded_rectangle'].includes(outline.drawing_shape)) {
+          hint.textContent = 'Drag inside to move, squares to resize, or inner dots to round all corners.';
+        }
         else if (tool === 'freehand') hint.textContent = canMove
-          ? 'Keep tracing or choose Move to reposition the outline.'
+          ? 'Keep tracing, drag a square to resize, or choose Move to reposition.'
           : 'Click to place points or drag to trace the area to keep.';
         else hint.textContent = tool === drawing.drawing_shape
-          ? 'Drag inside the outline to move it, or drag outside to draw a new shape.'
+          ? 'Drag inside to move, squares to resize, or outside to draw a new shape.'
           : 'Drag over the image to draw the cutout.';
         canvas.toggleAttribute('data-moving', Boolean(moveBounds));
         canvas.toggleAttribute('data-preview', preview);
@@ -606,6 +678,7 @@
             ctx.stroke();
           }
         }
+        if (closed && editingOutline()) drawHandles(outline, scale);
       }
 
       function redraw() {
@@ -656,9 +729,9 @@
         }
       }
 
-      function remember(outline = drawing) {
+      function remember() {
         if (history.length === 30) history.shift();
-        history.push(structuredClone(outline));
+        history.push(structuredClone(drawing));
       }
 
       function pointerPosition(event) {
@@ -670,7 +743,7 @@
         ];
       }
 
-      function updateDraft(next) {
+      function drawDraft(next) {
         const [startX, startY] = origin;
         let [x, y] = next;
         if (tool === 'circle') {
@@ -682,7 +755,7 @@
           drawing_shape: tool,
           bounds: [Math.min(startX, x), Math.min(startY, y), Math.max(startX, x), Math.max(startY, y)]
         };
-        if (tool === 'rounded_rectangle') draft.roundness = Number(roundness.value);
+        if (tool === 'rounded_rectangle') draft.roundness = drawing.roundness ?? 20;
         redraw();
       }
 
@@ -693,6 +766,84 @@
         if (dx === 0 && dy === 0) draft = drawing;
         else if (drawing.bounds) draft = {...drawing, bounds: [left + dx, top + dy, right + dx, bottom + dy]};
         else draft = {points: drawing.points.map(([px, py]) => [px + dx, py + dy])};
+        redraw();
+      }
+
+      function resizeCircle([left, top, right, bottom], dx, dy, horizontal, vertical, minDiameter) {
+        const {width, height} = canvas;
+        const centerX = (left + right) / 2, centerY = (top + bottom) / 2;
+        const limitX = horizontal < 0 ? right : horizontal > 0 ? 1 - left : 2 * Math.min(centerX, 1 - centerX);
+        const limitY = vertical < 0 ? bottom : vertical > 0 ? 1 - top : 2 * Math.min(centerY, 1 - centerY);
+        const delta = (horizontal * dx * width + vertical * dy * height) / (Math.abs(horizontal) + Math.abs(vertical));
+        const diameter = clamp((right - left) * width + delta, minDiameter, Math.min(limitX * width, limitY * height));
+        const rx = diameter / width, ry = diameter / height;
+        const x = horizontal < 0 ? right - rx : horizontal > 0 ? left : centerX - rx / 2;
+        const y = vertical < 0 ? bottom - ry : vertical > 0 ? top : centerY - ry / 2;
+        return [x, y, x + rx, y + ry].map(value => clamp(value, 0, 1));
+      }
+
+      function editDraft([x, y]) {
+        const {bounds, kind, horizontal, vertical, travel} = activeHandle;
+        const dx = x - origin[0], dy = y - origin[1];
+        if (!dx && !dy) {
+          draft = drawing;
+          redraw();
+          return;
+        }
+        if (kind === 'radius') {
+          const delta = (-horizontal * dx * canvas.width - vertical * dy * canvas.height) / 2;
+          const roundness = clamp(Math.round((drawing.roundness ?? 0) + 50 * delta / travel), 0, 50);
+          draft = roundness === (drawing.roundness ?? 0)
+            ? drawing : {...drawing, drawing_shape: 'rounded_rectangle', roundness};
+        } else {
+          const [left, top, right, bottom] = bounds;
+          const minWidth = Math.min(right - left, 10 / canvas.clientWidth);
+          const minHeight = Math.min(bottom - top, 10 / canvas.clientHeight);
+          let next;
+          if (drawing.drawing_shape === 'circle') {
+            next = resizeCircle(bounds, dx, dy, horizontal, vertical, minWidth * canvas.width);
+          } else {
+            next = [
+              horizontal < 0 ? clamp(left + dx, 0, right - minWidth) : left,
+              vertical < 0 ? clamp(top + dy, 0, bottom - minHeight) : top,
+              horizontal > 0 ? clamp(right + dx, left + minWidth, 1) : right,
+              vertical > 0 ? clamp(bottom + dy, top + minHeight, 1) : bottom
+            ];
+          }
+          if (next.every((value, index) => Math.abs(value - bounds[index]) < 1e-9)) draft = drawing;
+          else if (drawing.bounds) draft = {...drawing, bounds: next};
+          else {
+            const [x1, y1, x2, y2] = next;
+            const scaleX = (x2 - x1) / (right - left), scaleY = (y2 - y1) / (bottom - top);
+            draft = {points: drawing.points.map(([px, py]) => [
+              clamp(x1 + (px - left) * scaleX, 0, 1),
+              clamp(y1 + (py - top) * scaleY, 0, 1)
+            ])};
+          }
+        }
+        redraw();
+      }
+
+      function updateDraft(next) {
+        if (activeHandle) editDraft(next);
+        else if (moveBounds) moveDraft(next);
+        else if (origin) drawDraft(next);
+        else addPoint(next);
+      }
+
+      function updateCursor(next) {
+        const handle = findHandle(next);
+        if (handle) canvas.dataset.handleCursor = handle.cursor;
+        else delete canvas.dataset.handleCursor;
+        canvas.toggleAttribute('data-move-ready', !handle && canGrab(next));
+      }
+
+      function finishGesture() {
+        pointer = null;
+        origin = null;
+        draft = null;
+        moveBounds = null;
+        activeHandle = null;
         redraw();
       }
 
@@ -711,11 +862,17 @@
       canvas.addEventListener('pointerdown', event => {
         if (!picture || preview || pointer !== null || event.button !== 0) return;
         const next = pointerPosition(event);
-        const moving = canGrab(next);
-        if (tool === 'move' && !moving) return;
+        const handle = findHandle(next, event.pointerType === 'touch');
+        const moving = !handle && canGrab(next);
+        if (tool === 'move' && !moving && !handle) return;
         pointer = event.pointerId;
         canvas.setPointerCapture(pointer);
-        if (moving) {
+        if (handle) {
+          origin = next;
+          activeHandle = handle;
+          canvas.dataset.handleCursor = handle.cursor;
+          editDraft(next);
+        } else if (moving) {
           origin = next;
           moveBounds = outlineBounds();
           moveDraft(next);
@@ -725,90 +882,63 @@
           addPoint(next);
         } else {
           origin = next;
-          updateDraft(next);
+          drawDraft(next);
         }
       });
       canvas.addEventListener('pointermove', event => {
         if (pointer === null && picture && !preview) {
-          canvas.toggleAttribute('data-move-ready', canGrab(pointerPosition(event)));
+          updateCursor(pointerPosition(event));
         }
         if (event.pointerId !== pointer) return;
-        const next = pointerPosition(event);
-        if (moveBounds) moveDraft(next);
-        else if (origin) updateDraft(next);
-        else addPoint(next);
+        updateDraft(pointerPosition(event));
       });
-      canvas.addEventListener('pointerleave', () => canvas.removeAttribute('data-move-ready'));
+      canvas.addEventListener('pointerleave', () => {
+        canvas.removeAttribute('data-move-ready');
+        if (pointer === null) delete canvas.dataset.handleCursor;
+      });
       canvas.addEventListener('pointerup', event => {
         if (event.pointerId !== pointer) return;
         const next = pointerPosition(event);
-        if (moveBounds) {
-          moveDraft(next);
-          if (draft !== drawing) {
+        updateDraft(next);
+        if (draft && draft !== drawing) {
+          const sufficientlyLarge = () => {
+            const [left, top, right, bottom] = draft.bounds;
+            return (right - left) * canvas.clientWidth >= 3 && (bottom - top) * canvas.clientHeight >= 3;
+          };
+          if (activeHandle || moveBounds || sufficientlyLarge()) {
             remember();
+            if (activeHandle?.kind === 'radius' && tool === 'rectangle') tool = 'rounded_rectangle';
             drawing = draft;
           }
-        } else if (origin) {
-          updateDraft(next);
-          const [left, top, right, bottom] = draft.bounds;
-          if ((right - left) * canvas.clientWidth >= 3 && (bottom - top) * canvas.clientHeight >= 3) {
-            remember();
-            drawing = draft;
-          }
-        } else addPoint(next);
-        pointer = null;
-        origin = null;
-        draft = null;
-        moveBounds = null;
-        canvas.toggleAttribute('data-move-ready', canGrab(next));
-        redraw();
+        }
+        finishGesture();
+        updateCursor(next);
       });
       canvas.addEventListener('lostpointercapture', event => {
         if (event.pointerId !== pointer) return;
-        pointer = null;
-        origin = null;
-        draft = null;
-        moveBounds = null;
+        finishGesture();
         canvas.removeAttribute('data-move-ready');
-        redraw();
+        delete canvas.dataset.handleCursor;
       });
       for (const button of tools) {
         button.addEventListener('click', () => {
           if (pointer !== null || preview) return;
           tool = button.dataset.drawingTool;
           canvas.removeAttribute('data-move-ready');
-          if (tool === 'rounded_rectangle' && drawing.drawing_shape === tool) {
-            roundness.value = drawing.roundness ?? 20;
-          }
+          delete canvas.dataset.handleCursor;
           redraw();
         });
       }
-      roundness.value = drawing.roundness ?? 20;
-      roundness.addEventListener('input', () => {
-        if (drawing.drawing_shape === 'rounded_rectangle') {
-          previousRoundness ??= drawing.roundness;
-          drawing.roundness = Number(roundness.value);
-        }
-        redraw();
-      });
-      roundness.addEventListener('change', () => {
-        if (previousRoundness !== undefined && previousRoundness !== drawing.roundness) {
-          remember({...drawing, roundness: previousRoundness});
-        }
-        previousRoundness = undefined;
-        redraw();
-      });
       previewButton.addEventListener('click', () => {
         if (pointer !== null) return;
         preview = !preview;
         redraw();
       });
       undoButton.addEventListener('click', () => {
+        const previousShape = drawing.drawing_shape;
         drawing = history.pop() ?? {points: (drawing.points || []).slice(0, -1)};
         if (tool === 'move' && !enclosesArea(drawing)) tool = drawing.points?.length ? 'freehand' : 'rectangle';
-        if (tool === 'rounded_rectangle' && drawing.drawing_shape === tool) {
-          roundness.value = drawing.roundness;
-        }
+        if (tool === previousShape && drawing.drawing_shape) tool = drawing.drawing_shape;
         status.textContent = '';
         redraw();
       });

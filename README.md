@@ -71,7 +71,7 @@ In the demo, use **Browse image** to select an overlay.
 
 The demo selects PNG when the current format would discard transparency. Existing centered-shape and image-based JSON recipes remain compatible.
 
-Click **Mask** and draw directly on the example image. **Rectangle** is selected by default. You can also draw a **Circle**, **Ellipse**, or **Rounded rectangle**, or use **Freehand** to trace an outline. Drag inside a drawn shape to move it, or use **Move** for any outline. Select **Preview cutout** to check the result and **Apply mask** to add it to the batch.
+Click **Mask** and draw directly on the example image. **Rectangle** is selected by default. You can also draw a **Circle**, **Ellipse**, or **Rounded rectangle**, or use **Freehand** to trace an outline. Drag the squares on the sides and corners to resize. Drag an inner dot on a rectangle to round all four corners. Drag inside a drawn shape to move it, or use **Move** for any outline. Select **Preview cutout** to check the result and **Apply mask** to add it to the batch.
 
 The example reflects the operations before the Mask step. A freehand mask saves normalized points in JSON, for example `{"type":"mask","shape":"drawn","points":[[0.1,0.2],[0.9,0.2],[0.5,0.85]]}`. A shape saves its normalized bounds, for example `{"type":"mask","shape":"drawn","drawing_shape":"circle","bounds":[0.1,0.2,0.9,0.8]}`. Circles stay round when image proportions change. A rounded rectangle's `roundness` is a percentage from 0 to 50 of its shorter side.
 
